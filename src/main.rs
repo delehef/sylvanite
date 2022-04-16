@@ -164,7 +164,7 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
 
     let n = genes.len();
     let m = Mutex::new(vec![0f32; n * (n - 1) / 2]);
-    let bar = if settings.verbose && atty::is(atty::Stream::Stdout) {
+    let bar = if settings.verbose && n > 5000 && atty::is(atty::Stream::Stdout) {
         Some(ProgressBar::new(genes.len() as u64))
     } else {
         None
