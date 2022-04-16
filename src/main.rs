@@ -1,6 +1,8 @@
 use rusqlite::Connection;
 use std::fs::File;
 use std::io;
+use std::io::BufWriter;
+use std::io::Write;
 use std::sync::Mutex;
 use std::{
     collections::HashMap,
@@ -37,6 +39,30 @@ struct Gene {
 
 struct Register {
     genes: HashMap<String, Gene>,
+}
+
+fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
+    m: &[T],
+    ids: &[L],
+    mut out: BufWriter<Box<dyn std::io::Write + 'a>>,
+) -> Result<()> {
+    let n = ids.len();
+    assert!(m.len() == n * n);
+
+    // 1. Write the number of elements
+    writeln!(out, "{}", ids.len())?;
+
+    // 2. Write the matrix itself
+    for (i, id) in ids.iter().enumerate() {
+        write!(out, "{}", id)?;
+        for j in 0..ids.len() {
+            write!(out, "\t{:.5}", m[n * i + j])?;
+        }
+        writeln!(out)?;
+    }
+
+    // 3. Flush the output
+    Ok(out.flush()?)
 }
 
 fn read_db(filename: &str, window: usize) -> Result<Register> {
@@ -103,6 +129,7 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
         PathBuf::from(Path::new(filename).parent().unwrap())
     };
     outfile.set_file_name(Path::new(filename).with_extension("mat"));
+    let out: BufWriter<Box<dyn std::io::Write>> = BufWriter::with_capacity(30_000_000, Box::new(File::create(&outfile)?));
 
     let genes: Vec<String> = io::BufReader::new(File::open(filename)?)
         .lines()
@@ -110,28 +137,32 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
         .collect::<Result<Vec<_>>>()?;
     let m = Mutex::new(vec![0f32; genes.len().pow(2)]);
     for (i, g1) in genes.iter().enumerate() {
-        genes[0..i].par_iter().enumerate().map(|(j, g2)| {
-            let g1 = register
-                .genes
-                .get(g1)
-                .with_context(|| format!("`{}` not found in database", g1))?;
-            let g2 = register
-                .genes
-                .get(g2)
-                .with_context(|| format!("`{}` not found in database", g2))?;
+        genes[0..i]
+            .par_iter()
+            .enumerate()
+            .map(|(j, g2)| {
+                let g1 = register
+                    .genes
+                    .get(g1)
+                    .with_context(|| format!("`{}` not found in database", g1))?;
+                let g2 = register
+                    .genes
+                    .get(g2)
+                    .with_context(|| format!("`{}` not found in database", g2))?;
 
-            let score =
-                align::score_landscape(&g1.landscape, &g2.landscape, &|x, y| x.max(y) as f32);
-            m.lock()
-                .map(|mut m| {
-                    m[i * genes.len() + j] = score;
-                    m[j * genes.len() + i] = score;
-                })
-                .expect("MUTEX POISONING");
-            Ok(())
-        }).collect::<Result<Vec<_>>>()?;
+                let score =
+                    align::score_landscape(&g1.landscape, &g2.landscape, &|x, y| x.max(y) as f32);
+                m.lock()
+                    .map(|mut m| {
+                        m[i * genes.len() + j] = score;
+                        m[j * genes.len() + i] = score;
+                    })
+                    .expect("MUTEX POISONING");
+                Ok(())
+            })
+            .collect::<Result<Vec<_>>>()?;
     }
-
+    write_dist_matrix(&m.into_inner().expect("BROKEN MUTEX"), &genes, out)?;
     Ok(outfile)
 }
 
