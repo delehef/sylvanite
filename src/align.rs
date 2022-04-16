@@ -1,4 +1,4 @@
-use std::{cmp::*};
+use std::cmp::*;
 pub const MIN_INFORMATIVE_SYNTENY: usize = 0;
 
 fn align_sw<T1, T2, V>(s1: T1, s2: T2, normalizer: &dyn Fn(usize, usize) -> f32) -> f32
@@ -64,7 +64,8 @@ fn score_path(path: &Path, w1: &Weights, w2: &Weights) -> f32 {
         .sum::<f32>();
 
     if path.len() > 2 {
-        let mut dir = (path[1].1.unwrap() as i32 - path[0].1.unwrap() as i32).signum();
+        let mut dir =
+            (path[1].1.unwrap_or_default() as i32 - path[0].1.unwrap_or_default() as i32).signum();
         for j in 1..path.len() - 1 {
             if let Some(jj) = path[j + 1].1 {
                 if let Some(j) = path[j].1 {
@@ -147,7 +148,7 @@ where
     let s = s.as_ref();
     let mut r = Vec::with_capacity(s.len());
     let mut w = Vec::with_capacity(s.len());
-    r.push(s[1]);
+    r.push(s[0]);
     w.push(1);
 
     for g in s.iter().skip(1) {
@@ -227,11 +228,7 @@ where
     }
 }
 
-pub fn score_landscape<T1, T2, V>(
-    s1: T1,
-    s2: T2,
-    normalizer: &dyn Fn(usize, usize) -> f32,
-) -> f32
+pub fn score_landscape<T1, T2, V>(s1: T1, s2: T2, normalizer: &dyn Fn(usize, usize) -> f32) -> f32
 where
     T1: AsRef<[V]>,
     T2: AsRef<[V]>,

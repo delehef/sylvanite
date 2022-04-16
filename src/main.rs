@@ -4,6 +4,7 @@ use std::io::BufWriter;
 use std::io::Read;
 use std::io::Write;
 use std::sync::Mutex;
+use std::time::Instant;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -103,7 +104,7 @@ fn read_db(filename: &str, window: usize) -> Result<Register> {
                 right_landscape.truncate(window);
 
                 (
-                    g.0.clone(),
+                    g.1.clone(),
                     Gene {
                         // gene: g.0,
                         // protein: g.1,
@@ -123,10 +124,9 @@ fn read_genefile(filename: &str) -> Result<Vec<String>> {
     let mut filecontent = String::new();
     File::open(filename)?.read_to_string(&mut &mut filecontent)?;
     let filecontent = filecontent.trim();
-    if filecontent.starts_with("(") && filecontent.ends_with(");") {
+    if filecontent.starts_with("(") && filecontent.ends_with(";") {
         let tree = newick::Tree::from_string(&filecontent)?;
-        tree
-            .leaves()
+        tree.leaves()
             .map(|l| {
                 tree[l]
                     .name
@@ -146,7 +146,7 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
     } else {
         PathBuf::from(Path::new(filename).parent().unwrap())
     };
-    outfile.set_file_name(Path::new(filename).with_extension("mat"));
+    outfile.set_file_name(Path::new(filename).with_extension("dist"));
     let out: BufWriter<Box<dyn std::io::Write>> =
         BufWriter::with_capacity(30_000_000, Box::new(File::create(&outfile)?));
     let genes = read_genefile(filename)?;
@@ -157,17 +157,17 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
             .par_iter()
             .enumerate()
             .map(|(j, g2)| {
-                let g1 = register
+                let gg1 = register
                     .genes
                     .get(g1)
                     .with_context(|| format!("`{}` not found in database", g1))?;
-                let g2 = register
+                let gg2 = register
                     .genes
                     .get(g2)
                     .with_context(|| format!("`{}` not found in database", g2))?;
 
                 let score =
-                    align::score_landscape(&g1.landscape, &g2.landscape, &|x, y| x.max(y) as f32);
+                    align::score_landscape(&gg1.landscape, &gg2.landscape, &|x, y| x.max(y) as f32);
                 m.lock()
                     .map(|mut m| {
                         m[i * genes.len() + j] = score;
@@ -194,8 +194,13 @@ fn main() -> Result<()> {
 
     for f in args.infiles.iter() {
         println!("Processing {}", f);
+        let now = Instant::now();
         let out = process_file(&f, &register, &args)?;
-        println!("Result written to {:?}\n", out);
+        println!(
+            "Done in {}s. Result written to {:?}\n",
+            now.elapsed().as_secs(),
+            out
+        );
     }
 
     Ok(())
