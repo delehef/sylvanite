@@ -1,12 +1,11 @@
 use rusqlite::Connection;
 use std::fs::File;
-use std::io;
 use std::io::BufWriter;
+use std::io::Read;
 use std::io::Write;
 use std::sync::Mutex;
 use std::{
     collections::HashMap,
-    io::BufRead,
     path::{Path, PathBuf},
 };
 
@@ -32,8 +31,6 @@ struct Settings {
 }
 
 struct Gene {
-    gene: String,
-    protein: String,
     landscape: Vec<usize>,
 }
 
@@ -108,8 +105,8 @@ fn read_db(filename: &str, window: usize) -> Result<Register> {
                 (
                     g.0.clone(),
                     Gene {
-                        gene: g.0,
-                        protein: g.1,
+                        // gene: g.0,
+                        // protein: g.1,
                         landscape: left_landscape
                             .into_iter()
                             .chain([g.4].into_iter())
@@ -122,6 +119,27 @@ fn read_db(filename: &str, window: usize) -> Result<Register> {
     })
 }
 
+fn read_genefile(filename: &str) -> Result<Vec<String>> {
+    let mut filecontent = String::new();
+    File::open(filename)?.read_to_string(&mut &mut filecontent)?;
+    let filecontent = filecontent.trim();
+    if filecontent.starts_with("(") && filecontent.ends_with(");") {
+        let tree = newick::Tree::from_string(&filecontent)?;
+        tree
+            .leaves()
+            .map(|l| {
+                tree[l]
+                    .name
+                    .as_ref()
+                    .map(|s| s.to_owned())
+                    .with_context(|| format!("nameless leaf found in `{}`", filename))
+            })
+            .collect::<Result<Vec<_>>>()
+    } else {
+        Ok(filecontent.split("\n").map(|s| s.to_owned()).collect())
+    }
+}
+
 fn process_file(filename: &str, register: &Register, settings: &Settings) -> Result<PathBuf> {
     let mut outfile = if let Some(ref outdir) = settings.outdir {
         PathBuf::from(outdir)
@@ -129,12 +147,10 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
         PathBuf::from(Path::new(filename).parent().unwrap())
     };
     outfile.set_file_name(Path::new(filename).with_extension("mat"));
-    let out: BufWriter<Box<dyn std::io::Write>> = BufWriter::with_capacity(30_000_000, Box::new(File::create(&outfile)?));
+    let out: BufWriter<Box<dyn std::io::Write>> =
+        BufWriter::with_capacity(30_000_000, Box::new(File::create(&outfile)?));
+    let genes = read_genefile(filename)?;
 
-    let genes: Vec<String> = io::BufReader::new(File::open(filename)?)
-        .lines()
-        .map(|l| l.with_context(|| "while reading genes"))
-        .collect::<Result<Vec<_>>>()?;
     let m = Mutex::new(vec![0f32; genes.len().pow(2)]);
     for (i, g1) in genes.iter().enumerate() {
         genes[0..i]
