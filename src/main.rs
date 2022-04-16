@@ -125,10 +125,11 @@ fn read_genefile(filename: &str) -> Result<Vec<String>> {
     File::open(filename)?.read_to_string(&mut &mut filecontent)?;
     let filecontent = filecontent.trim();
     if filecontent.starts_with("(") && filecontent.ends_with(";") {
-        let tree = newick::Tree::from_string(&filecontent)?;
+        let tree = newick::from_string(&filecontent)?;
         tree.leaves()
             .map(|l| {
                 tree[l]
+                    .data
                     .name
                     .as_ref()
                     .map(|s| s.to_owned())
