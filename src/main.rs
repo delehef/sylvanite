@@ -1,4 +1,5 @@
 use indicatif::ProgressBar;
+use log::*;
 use rusqlite::Connection;
 use std::fs::File;
 use std::io::BufWriter;
@@ -20,6 +21,8 @@ mod align;
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 struct Settings {
+    #[clap(short, long)]
+    verbose: bool,
     #[clap(required = true)]
     infiles: Vec<String>,
     #[clap(short, long)]
@@ -65,7 +68,7 @@ fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
 }
 
 fn read_db(filename: &str, window: usize) -> Result<Register> {
-    println!("Parsing the database...");
+    info!("Parsing the database...");
     fn parse_landscape(landscape: &str) -> Vec<usize> {
         if landscape.is_empty() {
             Vec::new()
@@ -93,7 +96,7 @@ fn read_db(filename: &str, window: usize) -> Result<Register> {
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    println!("Done.");
+    info!("Done.");
     Ok(Register {
         genes: genes
             .into_par_iter()
@@ -156,10 +159,14 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
     let genes = read_genefile(filename)?;
 
     let n = genes.len();
-    let m = Mutex::new(vec![0f32; n*n]);
-    let bar = ProgressBar::new(genes.len() as u64);
+    let m = Mutex::new(vec![0f32; n * (n - 1) / 2]);
+    let bar = if settings.verbose && atty::is(atty::Stream::Stdout) {
+        Some(ProgressBar::new(genes.len() as u64))
+    } else {
+        None
+    };
     for (i, g1) in genes.iter().enumerate() {
-        bar.inc(1);
+        bar.as_ref().map(|b| b.inc(1));
         genes[0..i].par_iter().enumerate().try_for_each(|(j, g2)| {
             let gg1 = register
                 .genes
@@ -180,26 +187,32 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
             Ok(())
         })?;
     }
-    bar.finish();
+    bar.map(|b| b.finish_and_clear());
     write_dist_matrix(&m.into_inner().expect("BROKEN MUTEX"), &genes, out)?;
     Ok(outfile)
 }
 
 fn main() -> Result<()> {
     let args = Settings::parse();
+    stderrlog::new()
+        .timestamp(stderrlog::Timestamp::Off)
+        .verbosity(if args.verbose { 3 } else { 2 })
+        .show_level(false)
+        .init()
+        .unwrap();
     rayon::ThreadPoolBuilder::new()
         .num_threads(args.threads)
         .build_global()
         .unwrap();
-    println!("Using {} threads", rayon::current_num_threads());
+    debug!("Using {} threads", rayon::current_num_threads());
 
     let register = read_db(&args.database, args.window)?;
 
     for f in args.infiles.iter() {
-        println!("Processing {}", f);
+        info!("Processing {}", f);
         let now = Instant::now();
         let out = process_file(&f, &register, &args)?;
-        println!(
+        debug!(
             "Done in {}s. Result written to {:?}\n",
             now.elapsed().as_secs(),
             out
