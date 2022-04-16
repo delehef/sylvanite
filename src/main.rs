@@ -49,7 +49,7 @@ fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
     mut out: BufWriter<Box<dyn std::io::Write + 'a>>,
 ) -> Result<()> {
     let n = ids.len();
-    assert!(m.len() == n * n);
+    assert!(m.len() == n * (n - 1) / 2);
 
     // 1. Write the number of elements
     writeln!(out, "{}", ids.len())?;
@@ -57,8 +57,12 @@ fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
     // 2. Write the matrix itself
     for (i, id) in ids.iter().enumerate() {
         write!(out, "{}", id)?;
-        for j in 0..ids.len() {
-            write!(out, "\t{:.5}", m[n * i.max(j) + j.min(i)])?;
+        for j in 0..i {
+            write!(out, "\t{:.5}", m[i * (i - 1) / 2 + j])?;
+        }
+        write!(out, "\t{:.5}", 0.)?;
+        for j in i + 1..ids.len() {
+            write!(out, "\t{:.5}", m[j * (j - 1) / 2 + i])?;
         }
         writeln!(out)?;
     }
@@ -181,7 +185,7 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
                 align::score_landscape(&gg1.landscape, &gg2.landscape, &|x, y| x.max(y) as f32);
             m.lock()
                 .map(|mut m| {
-                    m[i * genes.len() + j] = score;
+                    m[i * (i - 1) / 2 + j] = score;
                 })
                 .expect("MUTEX POISONING");
             Ok(())
