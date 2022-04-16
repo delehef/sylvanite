@@ -54,7 +54,7 @@ fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
     for (i, id) in ids.iter().enumerate() {
         write!(out, "{}", id)?;
         for j in 0..ids.len() {
-            write!(out, "\t{:.5}", m[n * i + j])?;
+            write!(out, "\t{:.5}", m[n * i.max(j) + j.min(i)])?;
         }
         writeln!(out)?;
     }
@@ -154,30 +154,25 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
 
     let m = Mutex::new(vec![0f32; genes.len().pow(2)]);
     for (i, g1) in genes.iter().enumerate() {
-        genes[0..i]
-            .par_iter()
-            .enumerate()
-            .map(|(j, g2)| {
-                let gg1 = register
-                    .genes
-                    .get(g1)
-                    .with_context(|| format!("`{}` not found in database", g1))?;
-                let gg2 = register
-                    .genes
-                    .get(g2)
-                    .with_context(|| format!("`{}` not found in database", g2))?;
+        genes[0..i].par_iter().enumerate().try_for_each(|(j, g2)| {
+            let gg1 = register
+                .genes
+                .get(g1)
+                .with_context(|| format!("`{}` not found in database", g1))?;
+            let gg2 = register
+                .genes
+                .get(g2)
+                .with_context(|| format!("`{}` not found in database", g2))?;
 
-                let score =
-                    align::score_landscape(&gg1.landscape, &gg2.landscape, &|x, y| x.max(y) as f32);
-                m.lock()
-                    .map(|mut m| {
-                        m[i * genes.len() + j] = score;
-                        m[j * genes.len() + i] = score;
-                    })
-                    .expect("MUTEX POISONING");
-                Ok(())
-            })
-            .collect::<Result<Vec<_>>>()?;
+            let score =
+                align::score_landscape(&gg1.landscape, &gg2.landscape, &|x, y| x.max(y) as f32);
+            m.lock()
+                .map(|mut m| {
+                    m[i * genes.len() + j] = score;
+                })
+                .expect("MUTEX POISONING");
+            Ok(())
+        })?;
     }
     write_dist_matrix(&m.into_inner().expect("BROKEN MUTEX"), &genes, out)?;
     Ok(outfile)
