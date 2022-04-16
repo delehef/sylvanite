@@ -132,11 +132,6 @@ fn thread<T1, T2, V>(
         }
     }
 
-    if paths.len() > 100000 {
-        paths.sort_by_cached_key(|p| -(2. * score_path(p, w1, w2)) as i64);
-        paths.truncate(paths.len() / 2 as usize);
-    }
-
     thread(i + 1, paths, matches, s1, s2, w1, w2)
 }
 
@@ -185,8 +180,7 @@ where
         .iter()
         .filter_map(|m| if m.is_empty() { None } else { Some(m.len()) })
         .product();
-    if pp > 100000 {
-        println!("{}: using NW", pp);
+    if pp > 10000 {
         return score_landscape_nw(s1_, s2_, normalizer);
     }
 
