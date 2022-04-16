@@ -1,3 +1,4 @@
+use indicatif::ProgressBar;
 use rusqlite::Connection;
 use std::fs::File;
 use std::io::BufWriter;
@@ -64,6 +65,7 @@ fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
 }
 
 fn read_db(filename: &str, window: usize) -> Result<Register> {
+    println!("Parsing the database...");
     fn parse_landscape(landscape: &str) -> Vec<usize> {
         if landscape.is_empty() {
             Vec::new()
@@ -91,6 +93,7 @@ fn read_db(filename: &str, window: usize) -> Result<Register> {
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
+    println!("Done.");
     Ok(Register {
         genes: genes
             .into_par_iter()
@@ -152,8 +155,11 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
         BufWriter::with_capacity(30_000_000, Box::new(File::create(&outfile)?));
     let genes = read_genefile(filename)?;
 
-    let m = Mutex::new(vec![0f32; genes.len().pow(2)]);
+    let n = genes.len();
+    let m = Mutex::new(vec![0f32; n*n]);
+    let bar = ProgressBar::new(genes.len() as u64);
     for (i, g1) in genes.iter().enumerate() {
+        bar.inc(1);
         genes[0..i].par_iter().enumerate().try_for_each(|(j, g2)| {
             let gg1 = register
                 .genes
@@ -174,6 +180,7 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
             Ok(())
         })?;
     }
+    bar.finish();
     write_dist_matrix(&m.into_inner().expect("BROKEN MUTEX"), &genes, out)?;
     Ok(outfile)
 }
