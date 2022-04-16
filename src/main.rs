@@ -1,12 +1,17 @@
 use rusqlite::Connection;
+use std::fs::File;
+use std::io;
+use std::sync::Mutex;
 use std::{
     collections::HashMap,
+    io::BufRead,
     path::{Path, PathBuf},
 };
 
 use anyhow::*;
 use clap::Parser;
 
+use rayon::prelude::*;
 mod align;
 
 #[derive(Parser, Debug)]
@@ -20,13 +25,14 @@ struct Settings {
     database: String,
     #[clap(short, long, default_value_t = 15)]
     window: usize,
+    #[clap(short, long, default_value_t = 0)]
+    threads: usize,
 }
 
 struct Gene {
     gene: String,
     protein: String,
-    left_landscape: Vec<usize>,
-    right_landscape: Vec<usize>,
+    landscape: Vec<usize>,
 }
 
 struct Register {
@@ -34,42 +40,57 @@ struct Register {
 }
 
 fn read_db(filename: &str, window: usize) -> Result<Register> {
+    fn parse_landscape(landscape: &str) -> Vec<usize> {
+        if landscape.is_empty() {
+            Vec::new()
+        } else {
+            landscape
+                .split('.')
+                .map(|x| x.parse::<usize>().unwrap())
+                .collect::<Vec<_>>()
+        }
+    }
+
     let conn = Connection::open(filename)?;
-    let mut query =
-        conn.prepare("SELECT gene, protein, left_tail_ids, right_tail_ids FROM genome")?;
-    let genes = query.query_map([], |r| {
-        let gene: String = r.get(0)?;
-        let protein: String = r.get(1)?;
-        let left_landscape: String = r.get(2)?;
-        let mut left_landscape = left_landscape
-            .split('.')
-            .map(|x| x.parse::<usize>().unwrap())
-            .collect::<Vec<_>>();
-        left_landscape.reverse();
-        left_landscape.truncate(window);
-        left_landscape.reverse();
-
-        let right_landscape: String = r.get(3)?;
-        let mut right_landscape = right_landscape
-            .split('.')
-            .map(|x| x.parse::<usize>().unwrap())
-            .collect::<Vec<_>>();
-        right_landscape.truncate(window);
-
-        std::result::Result::Ok(Gene {
-            gene,
-            protein,
-            left_landscape,
-            right_landscape,
-        })
-    })?;
+    let mut query = conn.prepare(
+        "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id FROM genomes",
+    )?;
+    let genes = query
+        .query_map([], |r| {
+            std::result::Result::Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, usize>(4)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Register {
         genes: genes
-            .into_iter()
+            .into_par_iter()
             .map(|g| {
-                let g = g.unwrap();
-                (g.protein.clone(), g)
+                let mut left_landscape = parse_landscape(&g.2);
+                left_landscape.reverse();
+                left_landscape.truncate(window);
+                left_landscape.reverse();
+
+                let mut right_landscape = parse_landscape(&g.3);
+                right_landscape.truncate(window);
+
+                (
+                    g.0.clone(),
+                    Gene {
+                        gene: g.0,
+                        protein: g.1,
+                        landscape: left_landscape
+                            .into_iter()
+                            .chain([g.4].into_iter())
+                            .chain(right_landscape.into_iter())
+                            .collect(),
+                    },
+                )
             })
             .collect(),
     })
@@ -83,21 +104,46 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
     };
     outfile.set_file_name(Path::new(filename).with_extension("mat"));
 
+    let genes: Vec<String> = io::BufReader::new(File::open(filename)?)
+        .lines()
+        .map(|l| l.with_context(|| "while reading genes"))
+        .collect::<Result<Vec<_>>>()?;
+    let m = Mutex::new(vec![0f32; genes.len().pow(2)]);
+    for (i, g1) in genes.iter().enumerate() {
+        genes[0..i].par_iter().enumerate().map(|(j, g2)| {
+            let g1 = register
+                .genes
+                .get(g1)
+                .with_context(|| format!("`{}` not found in database", g1))?;
+            let g2 = register
+                .genes
+                .get(g2)
+                .with_context(|| format!("`{}` not found in database", g2))?;
+
+            let score =
+                align::score_landscape(&g1.landscape, &g2.landscape, &|x, y| x.max(y) as f32);
+            m.lock()
+                .map(|mut m| {
+                    m[i * genes.len() + j] = score;
+                    m[j * genes.len() + i] = score;
+                })
+                .expect("MUTEX POISONING");
+            Ok(())
+        }).collect::<Result<Vec<_>>>()?;
+    }
+
     Ok(outfile)
 }
 
 fn main() -> Result<()> {
     let args = Settings::parse();
-    let register = read_db(&args.database, args.window)?;
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(args.threads)
+        .build_global()
+        .unwrap();
+    println!("Using {} threads", rayon::current_num_threads());
 
-    println!(
-        "{}",
-        align::score_landscape(
-            [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3],
-            [1, 2, 3, 1, 2, 3, 1, 2, 1, 2, 3, 1, 2, 3, 1, 2, 3],
-            &|x, y| x.max(y) as f32
-        )
-    );
+    let register = read_db(&args.database, args.window)?;
 
     for f in args.infiles.iter() {
         println!("Processing {}", f);
