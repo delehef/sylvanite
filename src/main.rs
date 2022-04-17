@@ -130,7 +130,7 @@ fn read_db(filename: &str, window: usize) -> Result<Register> {
     })
 }
 
-fn read_genefile(filename: &str) -> Result<Vec<String>> {
+fn read_genefile(filename: &Path) -> Result<Vec<String>> {
     let mut filecontent = String::new();
     File::open(filename)?.read_to_string(&mut &mut filecontent)?;
     let filecontent = filecontent.trim();
@@ -143,7 +143,7 @@ fn read_genefile(filename: &str) -> Result<Vec<String>> {
                     .name
                     .as_ref()
                     .map(|s| s.to_owned())
-                    .with_context(|| format!("nameless leaf found in `{}`", filename))
+                    .with_context(|| format!("nameless leaf found in {:?}", filename))
             })
             .collect::<Result<Vec<_>>>()
     } else {
@@ -151,15 +151,19 @@ fn read_genefile(filename: &str) -> Result<Vec<String>> {
     }
 }
 
-fn process_file(filename: &str, register: &Register, settings: &Settings) -> Result<PathBuf> {
-    let mut outfile = if let Some(ref outdir) = settings.outdir {
+fn process_file(filename: &Path, register: &Register, settings: &Settings) -> Result<PathBuf> {
+    let outdir = if let Some(ref outdir) = settings.outdir {
         PathBuf::from(outdir)
     } else {
         PathBuf::from(Path::new(filename).parent().unwrap())
     };
-    outfile.set_file_name(Path::new(filename).with_extension("dist"));
-    let out: BufWriter<Box<dyn std::io::Write>> =
-        BufWriter::with_capacity(30_000_000, Box::new(File::create(&outfile)?));
+    let outfile = outdir.join(
+        Path::new(filename)
+            .with_extension("dist")
+            .file_name()
+            .unwrap(),
+    );
+
     let genes = read_genefile(filename)?;
 
     let n = genes.len();
@@ -192,7 +196,12 @@ fn process_file(filename: &str, register: &Register, settings: &Settings) -> Res
         })?;
     }
     bar.map(|b| b.finish_and_clear());
-    write_dist_matrix(&m.into_inner().expect("BROKEN MUTEX"), &genes, out)?;
+
+    write_dist_matrix(
+        &m.into_inner().expect("BROKEN MUTEX"),
+        &genes,
+        BufWriter::with_capacity(30_000_000, Box::new(File::create(&outfile)?)),
+    )?;
     Ok(outfile)
 }
 
@@ -212,15 +221,25 @@ fn main() -> Result<()> {
 
     let register = read_db(&args.database, args.window)?;
 
-    for f in args.infiles.iter() {
-        info!("Processing {}", f);
-        let now = Instant::now();
-        let out = process_file(&f, &register, &args)?;
-        debug!(
-            "Done in {}s. Result written to {:?}\n",
-            now.elapsed().as_secs(),
-            out
-        );
+    for p in args.infiles.iter() {
+        let files = if Path::new(&p).is_dir() {
+            std::fs::read_dir(p)?
+                // .with_context(|| format!("while opening directory `{}`", p))?
+                .map(|x| Ok(x?.path()))
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            vec![PathBuf::from(p)]
+        };
+        for f in files {
+            info!("Processing {:?}", f);
+            let now = Instant::now();
+            let out = process_file(&f, &register, &args)?;
+            debug!(
+                "Done in {}s. Result written to {:?}",
+                now.elapsed().as_secs(),
+                out
+            );
+        }
     }
 
     Ok(())
