@@ -1,6 +1,8 @@
 use std::cmp::*;
 pub const MIN_INFORMATIVE_SYNTENY: usize = 0;
 
+const T: usize = 10000;
+
 fn align_sw<T1, T2, V>(s1: T1, s2: T2, normalizer: &dyn Fn(usize, usize) -> f32) -> f32
 where
     T1: AsRef<[V]>,
@@ -176,11 +178,11 @@ where
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    let pp: usize = matches
+    let pp: Option<usize> = matches
         .iter()
         .filter_map(|m| if m.is_empty() { None } else { Some(m.len()) })
-        .product();
-    if pp > 10000 {
+        .try_fold(1usize, |ax, x| ax.checked_mul(x));
+    if pp.map(|pp| pp > T).unwrap_or(true) {
         return score_landscape_nw(s1_, s2_, normalizer);
     }
 
