@@ -17,6 +17,7 @@ use clap::Parser;
 
 use rayon::prelude::*;
 mod align;
+mod polytomic_tree;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
