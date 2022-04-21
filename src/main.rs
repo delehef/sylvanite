@@ -18,6 +18,10 @@ use clap::Parser;
 use rayon::prelude::*;
 mod align;
 mod polytomic_tree;
+mod sylva;
+mod utils;
+
+use utils::*;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -34,14 +38,6 @@ struct Settings {
     window: usize,
     #[clap(short, long, default_value_t = 0)]
     threads: usize,
-}
-
-struct Gene {
-    landscape: Vec<usize>,
-}
-
-struct Register {
-    genes: HashMap<String, Gene>,
 }
 
 fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
@@ -72,65 +68,6 @@ fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
     Ok(out.flush()?)
 }
 
-fn read_db(filename: &str, window: usize) -> Result<Register> {
-    info!("Parsing the database...");
-    fn parse_landscape(landscape: &str) -> Vec<usize> {
-        if landscape.is_empty() {
-            Vec::new()
-        } else {
-            landscape
-                .split('.')
-                .map(|x| x.parse::<usize>().unwrap())
-                .collect::<Vec<_>>()
-        }
-    }
-
-    let conn = Connection::open(filename)?;
-    let mut query = conn.prepare(
-        "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id FROM genomes",
-    )?;
-    let genes = query
-        .query_map([], |r| {
-            std::result::Result::Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, usize>(4)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-
-    info!("Done.");
-    Ok(Register {
-        genes: genes
-            .into_par_iter()
-            .map(|g| {
-                let mut left_landscape = parse_landscape(&g.2);
-                left_landscape.reverse();
-                left_landscape.truncate(window);
-                left_landscape.reverse();
-
-                let mut right_landscape = parse_landscape(&g.3);
-                right_landscape.truncate(window);
-
-                (
-                    g.1.clone(),
-                    Gene {
-                        // gene: g.0,
-                        // protein: g.1,
-                        landscape: left_landscape
-                            .into_iter()
-                            .chain([g.4].into_iter())
-                            .chain(right_landscape.into_iter())
-                            .collect(),
-                    },
-                )
-            })
-            .collect(),
-    })
-}
-
 fn read_genefile(filename: &Path) -> Result<Vec<String>> {
     let mut filecontent = String::new();
     File::open(filename)?.read_to_string(&mut &mut filecontent)?;
@@ -152,7 +89,7 @@ fn read_genefile(filename: &Path) -> Result<Vec<String>> {
     }
 }
 
-fn process_file(filename: &Path, register: &Register, settings: &Settings) -> Result<PathBuf> {
+fn process_file(filename: &Path, register: &GeneBook, settings: &Settings) -> Result<PathBuf> {
     let outdir = if let Some(ref outdir) = settings.outdir {
         PathBuf::from(outdir)
     } else {
@@ -178,11 +115,9 @@ fn process_file(filename: &Path, register: &Register, settings: &Settings) -> Re
         bar.as_ref().map(|b| b.inc(1));
         genes[0..i].par_iter().enumerate().try_for_each(|(j, g2)| {
             let gg1 = register
-                .genes
                 .get(g1)
                 .with_context(|| format!("`{}` not found in database", g1))?;
             let gg2 = register
-                .genes
                 .get(g2)
                 .with_context(|| format!("`{}` not found in database", g2))?;
 
