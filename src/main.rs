@@ -1,3 +1,6 @@
+use anyhow::*;
+use clap::Parser;
+use dede::*;
 use indicatif::ProgressBar;
 use log::*;
 use rusqlite::Connection;
@@ -11,17 +14,14 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
-
-use anyhow::*;
-use clap::Parser;
+use utils::*;
 
 use rayon::prelude::*;
 mod align;
+mod dede;
 mod polytomic_tree;
 mod sylva;
 mod utils;
-
-use utils::*;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
@@ -155,7 +155,13 @@ fn main() -> Result<()> {
         .unwrap();
     debug!("Using {} threads", rayon::current_num_threads());
 
-    let register = read_db(&args.database, args.window)?;
+    // let lines =
+    //     std::fs::read_to_string("/users/ldog/delehell/duplications/data/SuperTrees.nhx")
+    //         .unwrap();
+    // let lines = lines.split('\n').collect::<Vec<_>>();
+    let register = read_db(&args.database, args.window).unwrap();
+    // sylva::do_family(&lines[720], 720, "pipo", &register);
+    // return Ok(());
 
     for p in args.infiles.iter() {
         let files = if Path::new(&p).is_dir() {

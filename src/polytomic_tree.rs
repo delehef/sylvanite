@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-type NodeID = usize;
+pub type NodeID = usize;
 pub struct Node<T, S> {
-    children: Vec<NodeID>,
-    content: Vec<T>,
-    parent: Option<NodeID>,
-    tag: S,
+    pub children: Vec<NodeID>,
+    pub content: Vec<T>,
+    pub parent: Option<NodeID>,
+    pub tag: S,
 }
 
 pub struct PTree<T: Clone, S> {
@@ -27,6 +27,13 @@ impl<T: Clone, S> std::ops::IndexMut<usize> for PTree<T, S> {
 }
 
 impl<T: Clone, S> PTree<T, S> {
+    pub fn new() -> Self {
+        PTree {
+            nodes: HashMap::new(),
+            descendants_cache: HashMap::new(),
+        }
+    }
+
     pub fn add_node(
         &mut self,
         content: &[T],
@@ -46,6 +53,10 @@ impl<T: Clone, S> PTree<T, S> {
             },
         );
         id
+    }
+
+    pub fn nodes(&self) -> impl Iterator<Item=&NodeID> {
+        self.nodes.keys()
     }
 
     pub fn plug(&mut self, target: NodeID, n: NodeID) {
