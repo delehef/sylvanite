@@ -468,7 +468,9 @@ fn inject_satellites(
     let mut true_solos = vec![];
     let mut cached_elcs = t
         .nodes()
-        .map(|&c| (c, register.elc(view(&register.species, &t[c].content))))
+        .copied()
+        .filter(|c| !t[*c].content.is_empty())
+        .map(|c| (c, register.elc(view(&register.species, &t[c].content))))
         .collect::<HashMap<_, _>>();
 
     for &id in satellites.iter() {
@@ -948,7 +950,7 @@ fn create_duplications(
 }
 
 fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
-    let roots = t[0].children.clone();
+    let roots = t[1].children.clone();
 
     for &i in &roots {
         let mut dups = create_duplications(register, t, i);
@@ -1054,7 +1056,7 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
 
 fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
     t.cache_descendants(0);
-    let mut todo = t[0]
+    let mut todo = t[1]
         .children
         .iter()
         .copied()
@@ -1211,12 +1213,12 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
         }
     }
 
-    let mut tops = t[0]
+    let mut tops = t[1]
         .children
         .iter()
         .copied()
         .sorted_by_cached_key(|c| {
-            t[0].children
+            t[1].children
                 .iter()
                 .filter(|o| *o != c)
                 .map(|o| {
@@ -1358,7 +1360,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
     inject_extended(&mut tree, &mut extended, &register);
     let satellites = remove_solos_clusters(&mut tree);
 
-    let mut clusters = tree[0]
+    let mut clusters = tree[root]
         .children
         .iter()
         .copied()
@@ -1454,6 +1456,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
     }
 
     info!("Injecting {} satellites...", satellites.len());
+    println!("{:?}", tree.nodes().map(|k| (k, tree[*k].content.len(), tree[*k].children.len())).collect::<Vec<_>>());
     let satellites = inject_satellites(&mut tree, &satellites, &register);
     info!("Done.");
 
@@ -1461,10 +1464,10 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
     let to_remove = tree
         .nodes()
         .copied()
-        .filter(|&k| k != 0 && tree[k].content.is_empty() && tree[k].content.is_empty())
+        .filter(|&k| k != root && tree[k].content.is_empty() && tree[k].content.is_empty())
         .collect::<Vec<_>>();
     tree.delete_nodes(&to_remove);
-    for k in tree[0].children.clone().into_iter() {
+    for k in tree[root].children.clone().into_iter() {
         tree[k].tag = register
             .species_tree
             .mrca(view(&register.species, &tree[k].content))
