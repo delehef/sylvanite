@@ -45,9 +45,22 @@ struct Duplication {
 type Duplications = Vec<Duplication>;
 
 impl Register {
+    pub fn species_name(&self, x: SpeciesID) -> String {
+        if x > 0 {
+            self.species_tree[x]
+                .data
+                .name
+                .as_ref()
+                .map(|x| x.to_string())
+                .unwrap_or("UNKNWN".to_string())
+        } else {
+            "UNKNWN".into()
+        }
+    }
     pub fn span(&self, mrca: SpeciesID) -> Vec<SpeciesID> {
         self.species_tree.leaves_of(mrca)
     }
+
     pub fn mrca_span<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> Vec<SpeciesID> {
         self.span(self.species_tree.mrca(species).unwrap())
     }
@@ -72,6 +85,7 @@ impl Register {
             }
         };
     }
+
     pub fn elc<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> usize {
         let species: Vec<SpeciesID> = species.into_iter().copied().collect();
         let mrca = self.species_tree.mrca(&species).unwrap();
@@ -98,6 +112,14 @@ impl Register {
         } else {
             self.rec_elc(mrca, &mut missings, true)
         }
+    }
+
+    pub fn make_label(&self, x: GeneID) -> String {
+        format!(
+            "{}[&&NHX:S={}]",
+            &self.proteins[x],
+            self.species_name(self.species[x])
+        )
     }
 }
 
@@ -151,7 +173,10 @@ fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatr
         .parse::<usize>()?;
     ensure!(
         nn == n,
-        format!("{} does not have the correct size ({})", filename, n)
+        format!(
+            "{} does not have the expected size (expected {}, found {})",
+            filename, n, nn
+        )
     );
     for (i, l) in lines.enumerate() {
         let l = l?;
@@ -200,20 +225,19 @@ fn make_register(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let synteny = parse_dist_matrix(
-        &format!(
-            "/mnt/data/duplications/data/dists/syntenite/tree-{}.dist",
-            id
-        ),
-        &proteins,
-    )?;
-    let divergence = parse_dist_matrix(
-        &format!(
-            "/mnt/data/duplications/data/dists/divergence/tree-{}.dist",
-            id
-        ),
-        &proteins,
-    )?;
+    let synteny_matrix = &format!(
+        "/home/franklin/work/duplications/data/dists/syntenite/tree-{}.dist",
+        id
+    );
+    let synteny = parse_dist_matrix(&synteny_matrix, &proteins)
+        .with_context(|| format!("while reading synteny matrix `{}`", synteny_matrix))?;
+
+    let divergence_matrix = &format!(
+        "/home/franklin/work/duplications/data/dists/divergence/tree-{}.dist",
+        id
+    );
+    let divergence = parse_dist_matrix(&divergence_matrix, &proteins)
+        .with_context(|| format!("while reading sequence matrix `{}`", divergence_matrix))?;
     let species2id = species_tree
         .leaves()
         .map(|l| {
@@ -1306,12 +1330,15 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
     let logs_root = format!("logs/{}/", batch);
     let out_root = format!("out/{}/", batch);
 
+    std::fs::create_dir_all(&logs_root)?;
+    std::fs::create_dir_all(&out_root)?;
+
     let gene_tree = newick::from_string(tree_str)?;
     let nb_leaves = gene_tree.leaves().count();
     info!("===== Family {} -- {} proteins =====", id, nb_leaves);
 
     info!("Building register");
-    let (register, mut extended, mut solos) = make_register(id, &gene_tree, &book)?;
+    let (register, mut extended, solos) = make_register(id, &gene_tree, &book)?;
 
     let tt = find_threshold(&register);
 
@@ -1381,7 +1408,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
                     )
                 });
 
-            if let Some(mut b) = candidates.next() {
+            if let Some(b) = candidates.next() {
                 b.members.push(k);
                 b.species.extend(view(&register.species, &tree[k].content));
                 b.content.extend_from_slice(&tree[k].content);
@@ -1460,9 +1487,28 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
     make_final_tree(&mut tree, &register);
     info!("Done.");
 
-    info!("Pruning tree...");
-    prune_tree(&mut tree);
-    info!("Done.");
+    // info!("Pruning tree...");
+    // prune_tree(&mut tree);
+    // info!("Done.");
+
+    if register.size != tree.descendant_leaves(0).len() {
+        error!("Missing genes");
+    }
+
+    for k in tree.nodes() {
+        if tree[*k].children.len() > 2 {
+            warn!(
+                "Final tree is polytomic at {}",
+                register.species_name(tree[*k].tag)
+            );
+        }
+    }
+
+    File::create(&format!("{}/{}_synteny.nwk", &out_root, id))?.write_all(
+        &tree
+            .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
+            .as_bytes(),
+    )?;
 
     Ok(())
 }

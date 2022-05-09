@@ -17,7 +17,6 @@ indicatif = {version = "0.16", features = ["rayon"]}
 atty = "0.2"
 log = "0.4"
 stderrlog = "0.5"
-ndarray = "0.15"
 ordered-float = "2"
 itertools = "0.10"
 
