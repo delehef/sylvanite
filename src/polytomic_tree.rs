@@ -9,6 +9,7 @@ pub struct Node<T, S> {
 }
 
 pub struct PTree<T: Clone, S> {
+    current_id: usize,
     nodes: HashMap<NodeID, Node<T, S>>,
     descendants_cache: HashMap<NodeID, Vec<NodeID>>,
 }
@@ -29,6 +30,7 @@ impl<T: Clone, S> std::ops::IndexMut<usize> for PTree<T, S> {
 impl<T: Clone, S> PTree<T, S> {
     pub fn new() -> Self {
         PTree {
+            current_id: 0,
             nodes: HashMap::new(),
             descendants_cache: HashMap::new(),
         }
@@ -39,9 +41,10 @@ impl<T: Clone, S> PTree<T, S> {
         content: &[T],
         tag: S,
         parent: Option<NodeID>,
-        id: Option<NodeID>,
     ) -> NodeID {
-        let id = id.unwrap_or(self.nodes.len() + 1);
+        self.current_id = self.current_id.checked_add(1).expect("Tree is too big");
+        let id = self.current_id;
+        assert!(!self.nodes.contains_key(&id), "{} already exists", id);
         assert!(parent.is_none() || self.nodes.contains_key(&parent.unwrap()));
         self.nodes.insert(
             id,
@@ -52,10 +55,13 @@ impl<T: Clone, S> PTree<T, S> {
                 tag,
             },
         );
+        if let Some(parent) = parent {
+            self[parent].children.push(id);
+        }
         id
     }
 
-    pub fn nodes(&self) -> impl Iterator<Item=&NodeID> {
+    pub fn nodes(&self) -> impl Iterator<Item = &NodeID> {
         self.nodes.keys()
     }
 
@@ -132,9 +138,9 @@ impl<T: Clone, S> PTree<T, S> {
     }
 
     fn rec_descendants(&self, i: NodeID, ax: &mut Vec<NodeID>) {
-        for &j in &self.nodes[&i].children {
-            ax.push(j);
-            self.rec_descendants(j, ax)
+        for j in &self.nodes[&i].children {
+            ax.push(*j);
+            self.rec_descendants(*j, ax)
         }
     }
 
@@ -202,16 +208,16 @@ impl<T: Clone, S> PTree<T, S> {
             .children
             .iter()
             .map(|&c| self.format_leaf_newick(c, f_leaf, f_tag))
-            .filter(|s| s.is_empty())
+            .filter(|s| !s.is_empty())
             .collect::<Vec<String>>()
             .join(",");
 
         r.push_str("(");
         r.push_str(&ms);
-        r.push_str(&cs);
         if !ms.is_empty() && !cs.is_empty() {
             r.push_str(",");
         }
+        r.push_str(&cs);
         r.push_str(")");
 
         if !self.nodes[&i].children.is_empty() || self.nodes[&i].content.len() > 1 {
@@ -230,9 +236,29 @@ impl<T: Clone, S> PTree<T, S> {
             .filter(|k| self.nodes[&k].parent.is_none())
         {
             r.push_str(&self.format_leaf_newick(*k, f_leaf, f_tag));
-            r.push_str("\n;")
+            r.push_str(";\n");
         }
 
         r
+    }
+}
+
+impl<T: std::clone::Clone + std::fmt::Debug, S: std::fmt::Debug> PTree<T, S> {
+    fn rec_disp(&self, i: usize, depth: usize) {
+        println!(
+            "{}{}#{:?} > CHILDREN: {:?}",
+            " ".repeat(depth),
+            i,
+            self[i].tag,
+            self[i].children
+        );
+        println!("{}    |- CONTENT: {:?}", " ".repeat(depth), self[i].content);
+
+        for j in self[i].children.iter() {
+            self.rec_disp(*j, depth + 2);
+        }
+    }
+    pub fn disp(&self) {
+        self.rec_disp(1, 0);
     }
 }

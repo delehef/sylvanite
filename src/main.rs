@@ -70,10 +70,12 @@ fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
 
 fn read_genefile(filename: &Path) -> Result<Vec<String>> {
     let mut filecontent = String::new();
-    File::open(filename)?.read_to_string(&mut &mut filecontent)?;
+    File::open(filename)
+        .with_context(|| format!("failed to read {}", filename.display()))?
+        .read_to_string(&mut &mut filecontent)?;
     let filecontent = filecontent.trim();
     if filecontent.starts_with("(") && filecontent.ends_with(";") {
-        let tree = newick::from_string(&filecontent)?;
+        let tree = newick::one_from_string(&filecontent)?;
         tree.leaves()
             .map(|l| {
                 tree[l]
@@ -145,7 +147,7 @@ fn main() -> Result<()> {
     let args = Settings::parse();
     stderrlog::new()
         .timestamp(stderrlog::Timestamp::Off)
-        .verbosity(if args.verbose { 3 } else { 2 })
+        .verbosity(if args.verbose { 3 } else { 3 })
         .show_level(false)
         .init()
         .unwrap();
@@ -155,13 +157,13 @@ fn main() -> Result<()> {
         .unwrap();
     debug!("Using {} threads", rayon::current_num_threads());
 
-    // let lines =
-    //     std::fs::read_to_string("/users/ldog/delehell/duplications/data/SuperTrees.nhx")
-    //         .unwrap();
-    // let lines = lines.split('\n').collect::<Vec<_>>();
+    let lines =
+        std::fs::read_to_string("/users/ldog/delehell/duplications/data/SuperTrees.nhx")
+            .unwrap();
+    let lines = lines.split('\n').collect::<Vec<_>>();
     let register = read_db(&args.database, args.window).unwrap();
-    // sylva::do_family(&lines[720], 720, "pipo", &register);
-    // return Ok(());
+    sylva::do_family(&lines[720], 720, "pipo", &register)?;
+    return Ok(());
 
     for p in args.infiles.iter() {
         let files = if Path::new(&p).is_dir() {

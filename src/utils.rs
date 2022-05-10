@@ -40,8 +40,7 @@ pub fn read_db(filename: &str, window: usize) -> Result<GeneBook> {
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    info!("Done.");
-    Ok(genes
+    let r = genes
         .into_par_iter()
         .map(|g| {
             let mut left_landscape = parse_landscape(&g.2);
@@ -65,5 +64,8 @@ pub fn read_db(filename: &str, window: usize) -> Result<GeneBook> {
                 },
             )
         })
-        .collect())
+        .collect();
+
+    info!("Done.");
+    Ok(r)
 }
