@@ -24,6 +24,11 @@ type PolytomicGeneTree = PTree<usize, SpeciesID>;
 use crate::dede::*;
 use crate::polytomic_tree::*;
 
+fn round(x: f32, d: i8) -> f32 {
+    let ten = 10f32.powi(d as i32);
+    (x * ten).round() / ten
+}
+
 struct Register {
     size: usize,
     landscape_size: Vec<usize>,
@@ -345,18 +350,17 @@ fn find_threshold(register: &Register) -> f32 {
         warn!("Only one threshold found: using {}", tts[0]);
     }
 
-    let mut avg_size = Vec::<f32>::new();
-    let mut avg_comp = Vec::<f32>::new();
+    let mut avg_comp = Vec::new();
     let mut counts = Vec::<i64>::new();
-    let mut reds = Vec::<f32>::new();
-    let mut tt = 0;
-    let mut max_comp = 0.;
+    let mut reds = Vec::new();
 
-    for (i, &t) in tts.iter().enumerate() {
-        let mut clusters = clusterize(&register.synteny.masked(&register.core, &register.core), t);
+    for &t in &tts {
+        let mut clusters = clusterize(&register.synteny.masked(&register.core, &register.core), t)
+            .into_iter()
+            .filter(|c| !c.is_empty())
+            .collect::<Vec<_>>();
         clusters
             .iter_mut()
-            .filter(|c| !c.is_empty())
             .for_each(|c| c.iter_mut().for_each(|x| *x = register.core[*x]));
 
         let redundancies = clusters.iter().map(|c| c.len()).sum::<usize>() as f32
@@ -374,18 +378,16 @@ fn find_threshold(register: &Register) -> f32 {
             &clusters
                 .iter()
                 .map(|c| {
-                    let my_species = c
-                        .iter()
-                        .map(|&x| register.species[x])
-                        .collect::<HashSet<SpeciesID>>();
+                    let my_species =
+                        HashSet::<SpeciesID>::from_iter(view(&register.species, c).copied());
                     my_species.len() as f32 / register.mrca_span(&my_species).len() as f32
                 })
                 .collect::<Vec<f32>>(),
         );
 
-        reds.push(redundancies);
+        reds.push(round(redundancies, 2));
         counts.push(clusters.len() as i64);
-        avg_comp.push(compacities);
+        avg_comp.push(round(compacities, 2));
     }
 
     let mut cmpct_maxima = (1..tts.len() - 1)
@@ -1260,8 +1262,56 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
     }
 }
 
-fn prune_tree(t: &mut PolytomicGeneTree) {
-    todo!()
+fn prune_tree(tree: &mut PolytomicGeneTree) {
+    info!("Pruning empty leaf nodes -- from {}", tree.nodes().count());
+    loop {
+        let todos = tree
+            .nodes()
+            .copied()
+            .filter(|&k| tree[k].children.is_empty() && tree[k].content.is_empty())
+            .collect::<Vec<_>>();
+        if todos.is_empty() {
+            break;
+        } else {
+            tree.delete_nodes(&todos);
+        }
+    }
+    info!("...to {}", tree.nodes().count());
+
+    info!("Pruning empty leaf nodes -- from {}", tree.nodes().count());
+    loop {
+        let todos = tree
+            .nodes()
+            .copied()
+            .filter(|&k| tree[k].children.is_empty() && tree[k].content.len() == 1 && k != 1)
+            .collect::<Vec<_>>();
+
+        if let Some(k) = todos.get(0) {
+            let content = tree[*k].content[0];
+            let parent = tree[*k].parent.unwrap();
+            tree[parent].content.push(content);
+            tree.delete_node(*k);
+        } else {
+            break;
+        }
+    }
+    info!("...to {}", tree.nodes().count());
+
+    info!("Pruning scaffolding -- from {}", tree.nodes().count());
+    // Non used speciation nodes
+    loop {
+        let todos = tree
+            .nodes()
+            .copied()
+            .filter(|&k| k != 1 && tree[k].children.len() == 1 && tree[k].content.is_empty())
+            .collect::<Vec<_>>();
+        if let Some(k) = todos.get(0) {
+            tree.move_node(tree[*k].children[0], tree[*k].parent.unwrap());
+        } else {
+            break;
+        }
+    }
+    info!("...to {}", tree.nodes().count());
 }
 
 fn reconcile(
@@ -1535,9 +1585,9 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
             .as_bytes(),
     )?;
 
-    // info!("Pruning tree...");
-    // prune_tree(&mut tree);
-    // info!("Done.");
+    info!("Pruning tree...");
+    prune_tree(&mut tree);
+    info!("Done.");
 
     if register.size != tree.descendant_leaves(1).len() {
         error!("Missing genes");
