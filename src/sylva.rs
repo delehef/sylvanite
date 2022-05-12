@@ -16,6 +16,7 @@ const MIN_INFORMATIVE_SYNTENY: usize = 3;
 const CORE_THRESHOLD: usize = 20;
 const WINDOW: usize = 15;
 const SEPARATOR: char = '#';
+const DATA_ROOT: &str = "/home/franklin/work/duplications/data/";
 
 type SpeciesID = usize;
 type GeneID = usize;
@@ -233,8 +234,7 @@ fn make_register(
     tree: &NewickTree,
     book: &GeneBook,
 ) -> Result<(Register, Vec<SpeciesID>, Vec<SpeciesID>)> {
-    let mut species_tree =
-        newick::one_from_filename("/mnt/data/duplications/data/SpeciesTree.nwk")?;
+    let mut species_tree = newick::one_from_filename(format!("{}/SpeciesTree.nwk", DATA_ROOT))?;
     species_tree.cache_leaves();
     let proteins = tree
         .leaves()
@@ -250,17 +250,11 @@ fn make_register(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let synteny_matrix = &format!(
-        "/users/ldog/delehell/duplications/data/dists/synteny/tree-{:0>5}.dist",
-        id
-    );
+    let synteny_matrix = &format!("{}/dists/synteny/tree-{:0>5}.dist", DATA_ROOT, id);
     let synteny = parse_dist_matrix(&synteny_matrix, &proteins)
         .with_context(|| format!("while reading synteny matrix `{}`", synteny_matrix))?;
 
-    let divergence_matrix = &format!(
-        "/users/ldog/delehell/duplications/data/dists/divergence/tree-{}.dist",
-        id
-    );
+    let divergence_matrix = &format!("{}/dists/divergence/tree-{}.dist", DATA_ROOT, id);
     let divergence = parse_dist_matrix(&divergence_matrix, &proteins)
         .with_context(|| format!("failed to read sequence matrix `{}`", divergence_matrix))?;
     let species2id = species_tree
