@@ -728,8 +728,8 @@ fn inject_extended(
                     let delta_elc = register.elc(
                         view(&register.species, c_content).chain([register.species[*id]].iter()),
                     ) - cached_elcs[&c];
-                    let divergence = register.divergence.masked(&[*id], c_content).min();
-                    let synteny = -local_synteny.masked(&[*id], c_content).max();
+                    let divergence = round(register.divergence.masked(&[*id], c_content).min(), 2);
+                    let synteny = -round(local_synteny.masked(&[*id], c_content).max(), 2);
                     (
                         c,
                         (delta_elc, OrderedFloat(divergence), OrderedFloat(synteny)),
