@@ -90,7 +90,7 @@ impl Register {
         self.span(self.species_tree.mrca(species).unwrap())
     }
 
-    fn rec_elc(&self, me: SpeciesID, missings: &mut HashSet<SpeciesID>, only_large: bool) -> usize {
+    fn rec_elc(&self, me: SpeciesID, missings: &mut HashSet<SpeciesID>, only_large: bool) -> i64 {
         let my_span = HashSet::<SpeciesID>::from_iter(self.span(me).into_iter());
         return if my_span.is_subset(&missings) {
             if !only_large || my_span.len() > 1 {
@@ -111,7 +111,7 @@ impl Register {
         };
     }
 
-    pub fn elc<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> usize {
+    pub fn elc<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> i64 {
         let species: Vec<SpeciesID> = species.into_iter().copied().collect();
         let mrca = self.species_tree.mrca(&species).unwrap();
         let mut missings = HashSet::<SpeciesID>::from_iter(self.span(mrca))
@@ -125,7 +125,7 @@ impl Register {
         }
     }
 
-    pub fn ellc<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> usize {
+    pub fn ellc<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> i64 {
         let species: Vec<SpeciesID> = species.into_iter().copied().collect();
         let mrca = self.species_tree.mrca(&species).unwrap();
         let mut missings = HashSet::<SpeciesID>::from_iter(self.span(mrca))
@@ -1159,8 +1159,8 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
                     b,
                     (
                         delc,
-                        OrderedFloat((synteny * 100.).round()),
-                        OrderedFloat((divergence * 100.).round()),
+                        OrderedFloat(round(synteny, 2)),
+                        OrderedFloat(round(divergence, 2)),
                     ),
                 )
             })
@@ -1307,6 +1307,7 @@ fn prune_tree(tree: &mut PolytomicGeneTree) {
             .collect::<Vec<_>>();
         if let Some(k) = todos.get(0) {
             tree.move_node(tree[*k].children[0], tree[*k].parent.unwrap());
+            tree.delete_node(*k);
         } else {
             break;
         }
@@ -1508,7 +1509,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
                 })
                 .collect::<Vec<_>>();
 
-            if e as f32 <= (1.1 * all_elcs.iter().sum::<usize>() as f32).ceil() {
+            if e as f32 <= (1.1 * all_elcs.iter().sum::<i64>() as f32).ceil() {
                 if let Some(merger) = bin.members.pop() {
                     while let Some(merged) = bin.members.pop() {
                         tree.merge_nodes(merger, merged, &|a: &mut Vec<GeneID>, b: &[GeneID]| {
