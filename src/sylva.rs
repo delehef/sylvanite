@@ -620,7 +620,7 @@ fn inject_solos(
                 info!(
                     "          SOLO {:18} --> {:18} -- ΔELC: {:.3} IN:{} NARY: {} DV: {:2.2}",
                     register.proteins[id],
-                    register.proteins[t[cc.0].content[1]],
+                    register.proteins[t[cc.0].content[0]],
                     c.0,
                     c.1,
                     c.3,
@@ -1295,10 +1295,10 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
                 .filter(|o| *o != c)
                 .map(|o| {
                     OrderedFloat(-jaccard(
-                        &view(&register.species, t.cached_descendants(*c).unwrap().iter())
+                        &view(&register.species, t.descendant_leaves(*c).iter())
                             .copied()
                             .collect::<HashSet<_>>(),
-                        &view(&register.species, t.cached_descendants(*o).unwrap().iter())
+                        &view(&register.species, t.descendant_leaves(*o).iter())
                             .copied()
                             .collect::<HashSet<_>>(),
                     ))
