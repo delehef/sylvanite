@@ -155,14 +155,16 @@ fn main() -> Result<()> {
         .num_threads(args.threads)
         .build_global()
         .unwrap();
-    debug!("Using {} threads", rayon::current_num_threads());
+    debug!("Using {} threads", rayon::current_num_threads() / 2);
 
     let lines =
         std::fs::read_to_string("/users/ldog/delehell/duplications/data/SuperTrees.nhx")
             .unwrap();
     let lines = lines.split('\n').collect::<Vec<_>>();
     let register = read_db(&args.database, args.window).unwrap();
+    let now = Instant::now();
     sylva::do_family(&lines[720], 720, "pipo", &register)?;
+    debug!("Done in {}ms.", now.elapsed().as_millis());
     return Ok(());
 
     for p in args.infiles.iter() {
