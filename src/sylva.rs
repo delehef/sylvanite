@@ -981,12 +981,29 @@ fn create_duplications(
     assert!(sources.values().all(|l| l.len() <= 1));
 
     // Remaining singletons from previously duplicated species should be treated independently
-    let remaining_species = sources
-        .iter()
-        .filter(|(_k, v)| !v.is_empty())
-        .map(|(k, _v)| k)
-        .copied()
-        .collect::<HashSet<_>>();
+    let remaining_species = HashSet::<SpeciesID>::from_iter(
+        sources
+            .iter()
+            .filter_map(|(k, v)| if !v.is_empty() { Some(k) } else { None })
+            .copied(),
+    );
+    if !remaining_species.is_empty() {
+        for s in remaining_species.intersection(&duplicated_species) {
+            dups.push(vec![Duplication {
+                root: register.species_tree.mrca(&[*s]).unwrap(),
+                content: sources[s].clone(),
+                species: HashSet::from_iter([*s].into_iter()),
+            }])
+        }
+    }
+
+    // If the remaining species make for a subset of the existing duplications, they should go under
+    let remaining_species = HashSet::from_iter(
+        sources
+            .iter()
+            .filter_map(|(k, v)| if !v.is_empty() { Some(k) } else { None })
+            .copied(),
+    );
     if !remaining_species.is_empty()
         && dups.iter().flat_map(|d| d.iter()).any(|d| {
             register
