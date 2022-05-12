@@ -22,7 +22,6 @@ impl<T: Clone, S> std::ops::Index<usize> for PTree<T, S> {
 }
 impl<T: Clone, S> std::ops::IndexMut<usize> for PTree<T, S> {
     fn index_mut(&mut self, i: usize) -> &mut Self::Output {
-        pub fn descendants() {}
         self.nodes.get_mut(&i).unwrap()
     }
 }
@@ -223,7 +222,7 @@ impl<T: Clone, S> PTree<T, S> {
         if !self.nodes[&i].children.is_empty() || self.nodes[&i].content.len() > 1 {
             r.push_str(&format!("{}-{}", f_tag(&self.nodes[&i].tag), i));
         }
-        r.push_str(&format!("[&&NHXS:S={}]", f_tag(&self.nodes[&i].tag)));
+        r.push_str(&format!("[&&NHX:S={}]", f_tag(&self.nodes[&i].tag)));
 
         r
     }
