@@ -570,7 +570,7 @@ fn inject_satellites(
                 register.elc(view(&register.species, &t[parent].content)),
             );
         } else {
-            let new_cluster = t.add_node(&[id], register.species[id], Some(0));
+            let new_cluster = t.add_node(&[id], register.species[id], Some(1));
             cached_elcs.insert(
                 new_cluster,
                 register.elc(view(&register.species, &t[new_cluster].content)),
