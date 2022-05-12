@@ -797,15 +797,12 @@ fn grow_duplication(
             species: HashSet::from_iter([seed_species].into_iter()),
         })
         .collect::<Vec<_>>();
-
     sources.get_mut(&seed_species).unwrap().clear();
     let mut n = ds[0].root;
-    let mut history = Vec::new();
-    let mut best_dcss = vec![0i16; ds.len()];
 
+    let mut history = Vec::new();
     while register.species_tree.parent(n).is_some() {
         n = register.species_tree.parent(n).unwrap();
-
         let mut history_entry = vec![];
         let total_span = register.species_tree.leaves_of(n);
 
@@ -817,6 +814,8 @@ fn grow_duplication(
         }
         let mut filled = HashMap::<(usize, SpeciesID), bool>::new();
         let mut links = Vec::new();
+        let mut putatives = ds.iter().map(|_| Vec::new()).collect::<Vec<_>>();
+
         for (i, d) in ds.iter().enumerate() {
             let new_span = total_span
                 .iter()
@@ -825,8 +824,8 @@ fn grow_duplication(
                 .collect::<Vec<_>>();
 
             for species in new_span {
-                let mut candidates = sources.entry(species).or_default();
-                candidates.sort_by_key(|&c| {
+                let candidates = sources.entry(species).or_default();
+                candidates.sort_by_cached_key(|&c| {
                     OrderedFloat(-register.synteny.masked(&[c], &d.content).max())
                 });
 
@@ -835,15 +834,14 @@ fn grow_duplication(
                     links.push(Link {
                         arm: i,
                         gene: *c,
-                        synteny: synteny,
-                        species: species,
+                        synteny,
+                        species,
                     });
                 }
             }
         }
         links.sort_by_key(|l| (-i64::try_from(ds[l.arm].content.len()).unwrap(), -l.synteny));
 
-        let mut putatives = ds.iter().map(|_| Vec::new()).collect::<Vec<_>>();
         for l in links {
             if !filled.get(&(l.arm, l.species)).unwrap_or(&false)
                 && sources[&l.species].contains(&l.gene)
@@ -864,12 +862,11 @@ fn grow_duplication(
             }
         }
 
-        let spd = ds.iter().map(|d| d.species.clone()).collect::<Vec<_>>();
         let mut dcss = VecMatrix::<f32>::with_elem(ds.len(), ds.len(), 0.);
         for i in 0..ds.len() {
             for j in i..ds.len() {
-                dcss[(i, j)] = spd[i].len() as f32 / spd[j].len() as f32;
-                dcss[(j, i)] = spd[i].len() as f32 / spd[j].len() as f32;
+                dcss[(i, j)] = ds[i].species.len() as f32 / ds[j].species.len() as f32;
+                dcss[(j, i)] = ds[i].species.len() as f32 / ds[j].species.len() as f32;
             }
         }
 
@@ -884,16 +881,16 @@ fn grow_duplication(
             } else {
                 *putative_dcss.iter().max().unwrap()
             };
-            let filling = spd[i].len() as f32
+            let filling = d.species.len() as f32
                 / register
-                    .mrca_span(&spd[i])
+                    .mrca_span(&d.species)
                     .into_iter()
                     .collect::<HashSet<_>>()
                     .intersection(&register.all_species)
                     .count() as f32;
             let filling_threshold = if total_span.len() <= 4 { 0. } else { 0.4 };
 
-            if (filling > filling_threshold)
+            if (filling >filling_threshold)
                 && (!putatives[i].is_empty())
                 && best_dcs > OrderedFloat(0.)
             {
@@ -1546,7 +1543,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
         }
 
         for mut bin in bins.into_iter() {
-            let e = register.elc(&bin.species);
+            let e = register.elc(&bin.species) as f32;
             let ee = register.ellc(&bin.species);
             let merged_compactness = bin.species.len() as f32
                 / (HashSet::<SpeciesID>::from_iter(
@@ -1565,7 +1562,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
                 })
                 .collect::<Vec<_>>();
 
-            if e as f32 <= (1.1 * all_elcs.iter().sum::<i64>() as f32).ceil() {
+            if e <= (1.1 * all_elcs.iter().sum::<i64>() as f32).ceil() {
                 if let Some(merger) = bin.members.pop() {
                     while let Some(merged) = bin.members.pop() {
                         tree.merge_nodes(merger, merged, &|a: &mut Vec<GeneID>, b: &[GeneID]| {
