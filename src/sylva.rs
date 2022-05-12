@@ -669,7 +669,7 @@ fn inject_extended(
         }
     }
 
-    extended.sort_by_key(|&id| OrderedFloat(local_synteny.masked(&[id], &register.core).max()));
+    extended.sort_by_key(|&id| -OrderedFloat(local_synteny.masked(&[id], &register.core).max()));
 
     let mut core_content = t
         .nodes()
@@ -709,7 +709,7 @@ fn inject_extended(
                         view(&register.species, c_content).chain([register.species[*id]].iter()),
                     ) - cached_elcs[&c];
                     let divergence = register.divergence.masked(&[*id], c_content).min();
-                    let synteny = -register.synteny.masked(&[*id], c_content).max();
+                    let synteny = -local_synteny.masked(&[*id], c_content).max();
                     (
                         c,
                         (delta_elc, OrderedFloat(divergence), OrderedFloat(synteny)),
