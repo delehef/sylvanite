@@ -30,6 +30,26 @@ fn round(x: f32, d: i8) -> f32 {
     (x * ten).round() / ten
 }
 
+fn sim_matrix(
+    t: &PolytomicGeneTree,
+    register: &Register,
+    ks: &[usize],
+    f: &dyn Fn(usize, usize) -> f32,
+) {
+    for i in 0..ks.len() {
+        print!(
+            "{:2}/({:3}) {:20} |  ",
+            ks[i],
+            t[ks[i]].content.len(),
+            register.proteins[t[ks[i]].content[0]]
+        );
+        for j in 0..i {
+            print!("{:2.2}  ", f(ks[i], ks[j]))
+        }
+        println!();
+    }
+}
+
 struct Register {
     size: usize,
     landscape_size: Vec<usize>,
@@ -553,9 +573,13 @@ fn inject_satellites(
         }
 
         if log {
+            info!("SATELLITE {}", register.proteins[id]);
             for cc in &candidate_clusters {
                 let c = cc.1;
-                info!("          SATELLITE {:20} --> {:20} | #{:3} -- SYN: {:.2} ΔELC: {:3} DV: {:2.2}", register.proteins[id], register.proteins[t[cc.0].content[0]], cc.0, c.2, c.0, c.1);
+                info!(
+                    "    {:20} --> #{:3} -- SYN: {:.2} ΔELC: {:3} DV: {:2.2}",
+                    register.proteins[t[cc.0].content[0]], cc.0, c.2, c.0, c.1
+                );
             }
         }
         if let Some(cluster) = candidate_clusters.first() {
@@ -615,16 +639,12 @@ fn inject_solos(
         candidate_clusters.sort_by_key(|c| c.1);
 
         if log {
+            info!("SOLO {}", register.proteins[id]);
             for cc in &candidate_clusters {
                 let c = cc.1;
                 info!(
-                    "          SOLO {:18} --> {:18} -- ΔELC: {:.3} IN:{} NARY: {} DV: {:2.2}",
-                    register.proteins[id],
-                    register.proteins[t[cc.0].content[0]],
-                    c.0,
-                    c.1,
-                    c.3,
-                    c.2
+                    "    {:20} -- ΔELC: {:3} IN:{} NARY: {} DV: {:2.2}",
+                    register.proteins[t[cc.0].content[0]], c.0, c.1, c.3, c.2
                 );
             }
         }
@@ -697,7 +717,7 @@ fn inject_extended(
         touched = false;
 
         for id in extended.iter() {
-            let log = register.proteins[*id] == "ENSPNAP00000036850";
+            let log = register.proteins[*id] == "ENSTBEP00000011930";
 
             let mut candidate_clusters = t
                 .nodes()
@@ -750,15 +770,12 @@ fn inject_extended(
             }
 
             if log {
+                info!("EXTENDED {}", register.proteins[*id],);
                 for cc in &candidate_clusters {
                     let c = cc.1;
                     info!(
-                        "          EXTENDED {} --> {} -- SYN: {:.2} DV: {:2.2} ΔELC: {}",
-                        register.proteins[*id],
-                        register.proteins[t[cc.0].content[0]],
-                        c.2,
-                        c.1,
-                        c.0
+                        "    {:20} --> SYN: {:.2} DV: {:2.2} ΔELC: {}",
+                        register.proteins[t[cc.0].content[0]], c.2, c.1, c.0
                     );
                 }
             }
@@ -866,7 +883,7 @@ fn grow_duplication(
         for i in 0..ds.len() {
             for j in i..ds.len() {
                 dcss[(i, j)] = ds[i].species.len() as f32 / ds[j].species.len() as f32;
-                dcss[(j, i)] = ds[i].species.len() as f32 / ds[j].species.len() as f32;
+                dcss[(j, i)] = ds[j].species.len() as f32 / ds[i].species.len() as f32;
             }
         }
 
@@ -890,7 +907,7 @@ fn grow_duplication(
                     .count() as f32;
             let filling_threshold = if total_span.len() <= 4 { 0. } else { 0.4 };
 
-            if (filling >filling_threshold)
+            if (filling > filling_threshold)
                 && (!putatives[i].is_empty())
                 && best_dcs > OrderedFloat(0.)
             {
@@ -1138,8 +1155,8 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
         .copied()
         .sorted_by_cached_key(|x| {
             (
-                register.species_tree.node_topological_depth(t[*x].tag),
-                -(t.descendant_leaves(*x).len() as i64),
+                -register.species_tree.node_topological_depth(t[*x].tag),
+                (t.descendant_leaves(*x).len() as i64),
             )
         })
         .collect::<Vec<_>>();
@@ -1148,7 +1165,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
         let candidate_parents = t
             .nodes()
             .copied()
-            .filter(|&b| b != 0)
+            .filter(|&b| b != 1)
             .filter(|&b| b != a)
             .filter(|&b| t[b].tag == t[a].tag)
             .filter(|&b| !t.cached_descendants(a).unwrap().contains(&b))
@@ -1204,7 +1221,8 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             .iter()
             .filter(|b| !leaves[b].is_empty())
             .map(|b| {
-                let delc = register.elc(speciess[&a].iter().chain(speciess[b].iter()));
+                let delc = register.elc(speciess[&a].iter().chain(speciess[b].iter()))
+                    - register.elc(&speciess[b]);
                 let synteny = register.synteny.masked(&leaves[&a], &leaves[b]).max();
                 let divergence = register.divergence.masked(&leaves[&a], &leaves[b]).min();
 
@@ -1219,14 +1237,34 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             })
             .collect::<Vec<_>>();
         candidate_parents.sort_by_key(|c| (c.1 .0, -c.1 .1, c.1 .2));
+        let log = true;
+
+        if log {
+            println!("\n\n=== BEFORE ===");
+            for b in &candidate_parents {
+                let bb = b.1;
+                let b = b.0;
+                info!(
+                    "{:4}/{:4} ({:4} leaves) DELC: {:2} SYN: {:2.2} DV: {:2.2} T: {} {}",
+                    b,
+                    context_nodes[b],
+                    leaves[b].len(),
+                    bb.0,
+                    bb.1,
+                    bb.2,
+                    register.species_name(t[*b].tag),
+                    register.proteins[leaves[b][0]]
+                );
+            }
+        }
 
         if candidate_parents
             .iter()
             .map(|c| c.1 .1)
-            .any(|s| s >= OrderedFloat(100.) * RELAXED_SYNTENY_THRESHOLD)
+            .any(|s| s >= RELAXED_SYNTENY_THRESHOLD)
         {
-            debug!("Sorting by synteny");
-            candidate_parents.retain(|c| c.1 .1 >= OrderedFloat(100.) * RELAXED_SYNTENY_THRESHOLD);
+            debug!("Filtering by synteny");
+            candidate_parents.retain(|c| c.1 .1 >= RELAXED_SYNTENY_THRESHOLD);
             candidate_parents.sort_by_key(|c| {
                 (
                     -c.1 .1, // Synteny
@@ -1240,7 +1278,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             .map(|c| c.1 .2)
             .any(|d| d <= OrderedFloat(0.5))
         {
-            debug!("Sorting by divergence");
+            debug!("Filtering by divergence");
             candidate_parents.retain(|c| c.1 .2 < OrderedFloat(0.5));
             candidate_parents.sort_by_key(|c| {
                 (
@@ -1251,6 +1289,24 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             })
         }
 
+        if log {
+            println!("=== AFTER ===");
+            for b in &candidate_parents {
+                let bb = b.1;
+                let b = b.0;
+                info!(
+                    "{:4}/{:4} ({:4} leaves) DELC: {:2} SYN: {:2.2} DV: {:2.2} T: {} {}",
+                    b,
+                    context_nodes[b],
+                    leaves[b].len(),
+                    bb.0,
+                    bb.1,
+                    bb.2,
+                    register.species_name(t[*b].tag),
+                    register.proteins[leaves[b][0]]
+                );
+            }
+        }
         if let Some(cluster) = candidate_parents.first() {
             let child = a;
             let parent = *cluster.0;
@@ -1470,7 +1526,11 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
             .as_bytes(),
     )?;
 
-    info!("Injecting {} extended", extended.len());
+    info!(
+        "Injecting {} extended in {} clusters",
+        extended.len(),
+        tree[1].children.len()
+    );
     inject_extended(&mut tree, &mut extended, &register);
     let satellites = remove_solos_clusters(&mut tree);
     File::create(&format!("{}/{}_withextended.nwk", &out_root, id))?.write_all(
@@ -1483,18 +1543,31 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
         .children
         .iter()
         .copied()
-        .filter(|c| tree[*c].content.len() > 0)
+        .filter(|c| !tree[*c].content.is_empty())
         .sorted_by_cached_key(|c| {
-            -register.species_tree.node_topological_depth(
+            let topo_depth = -register.species_tree.node_topological_depth(
                 register
                     .species_tree
                     .mrca(view(&register.species, &tree[*c].content))
                     .unwrap(),
-            )
+            );
+            let size = tree[*c].content.len();
+            (topo_depth, size)
         })
         .collect::<Vec<_>>();
 
     info!("Packing clusters");
+    info!("From {}...", tree[1].children.len());
+    // sim_matrix(&tree, &register, &clusters, &|i, j| {
+    //     jaccard(
+    //         &view(&register.species, &tree[i].content)
+    //             .copied()
+    //             .collect::<HashSet<_>>(),
+    //         &view(&register.species, &tree[j].content)
+    //             .copied()
+    //             .collect::<HashSet<_>>(),
+    //     )
+    // });
     struct Bin {
         members: Vec<usize>,
         species: HashSet<SpeciesID>,
@@ -1573,13 +1646,29 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
             }
         }
     }
+
+    // sim_matrix(&tree, &register, &tree[1].children, &|i, j| {
+    //     jaccard(
+    //         &view(&register.species, &tree[i].content)
+    //             .copied()
+    //             .collect::<HashSet<_>>(),
+    //         &view(&register.species, &tree[j].content)
+    //             .copied()
+    //             .collect::<HashSet<_>>(),
+    //     )
+    // });
+    info!("...to {}", tree[1].children.len());
     File::create(&format!("{}/{}_merged.nwk", &out_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
             .as_bytes(),
     )?;
 
-    info!("Injecting {} satellites...", satellites.len());
+    info!(
+        "Injecting {} satellites in {} clusters...",
+        satellites.len(),
+        tree[1].children.len()
+    );
     let satellites = inject_satellites(&mut tree, &satellites, &register);
     info!("Done.");
     File::create(&format!("{}/{}_withsatellites.nwk", &out_root, id))?.write_all(
@@ -1603,7 +1692,11 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
     }
     info!("Done.");
 
-    info!("Injecting {} solos", solos.len());
+    info!(
+        "Injecting {} solos in {} clusters",
+        solos.len(),
+        tree[1].children.len()
+    );
     let true_solos = inject_solos(&mut tree, &solos, &register);
     for id in true_solos {
         tree.add_node(&[id], register.species[id], Some(0));
