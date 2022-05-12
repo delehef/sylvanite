@@ -684,12 +684,11 @@ fn inject_extended(
                     * register.landscape_size[*i].max(register.landscape_size[j]) as f32;
                 let new_score = score / register.landscape_size[*i] as f32;
                 local_synteny[(*i, j)] = new_score;
-                local_synteny[(j, *i)] = new_score;
             }
         }
     }
-
-    extended.sort_by_key(|&id| -OrderedFloat(local_synteny.masked(&[id], &register.core).max()));
+    extended
+        .sort_by_cached_key(|&id| -OrderedFloat(local_synteny.masked(&[id], &register.core).max()));
 
     let mut core_content = t
         .nodes()
@@ -1543,19 +1542,22 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
         .children
         .iter()
         .copied()
-        .filter(|c| !tree[*c].content.is_empty())
         .sorted_by_cached_key(|c| {
-            let topo_depth = -register.species_tree.node_topological_depth(
+            let topo_depth = register.species_tree.node_topological_depth(
                 register
                     .species_tree
                     .mrca(view(&register.species, &tree[*c].content))
                     .unwrap(),
             );
             let size = tree[*c].content.len();
-            (topo_depth, size)
+            (-topo_depth, size)
         })
         .collect::<Vec<_>>();
 
+    assert!(tree[1]
+        .children
+        .iter()
+        .all(|k| !tree[*k].content.is_empty()));
     info!("Packing clusters");
     info!("From {}...", tree[1].children.len());
     // sim_matrix(&tree, &register, &clusters, &|i, j| {
@@ -1591,13 +1593,17 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
                 })
                 .sorted_by_cached_key(|b| {
                     (
-                        OrderedFloat(-register.synteny.masked(&b.content, &tree[k].content).max()),
-                        OrderedFloat(
+                        OrderedFloat(-round(
+                            register.synteny.masked(&b.content, &tree[k].content).max(),
+                            2,
+                        )),
+                        OrderedFloat(round(
                             register
                                 .divergence
                                 .masked(&b.content, &tree[k].content)
                                 .min(),
-                        ),
+                            2,
+                        )),
                         -(b.species.len() as i64),
                     )
                 });
