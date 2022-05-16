@@ -5,6 +5,7 @@ use itertools::Itertools;
 use log::*;
 use newick::*;
 use ordered_float::OrderedFloat;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::fs::File;
