@@ -41,7 +41,7 @@ pub fn read_db(filename: &str, window: usize) -> Result<GeneBook> {
         .collect::<Result<Vec<_>, _>>()?;
 
     let r = genes
-        .into_par_iter()
+        .into_iter()
         .map(|g| {
             let mut left_landscape = parse_landscape(&g.2);
             left_landscape.reverse();
