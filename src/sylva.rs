@@ -524,16 +524,36 @@ fn inject_satellites(
     satellites: &[NodeID],
     register: &Register,
 ) -> Vec<NodeID> {
-    let mut true_solos = vec![];
     let mut cached_elcs = t
         .nodes()
         .copied()
         .filter(|c| !t[*c].content.is_empty())
         .map(|c| (c, register.elc(view(&register.species, &t[c].content))))
         .collect::<HashMap<_, _>>();
+    let mut true_solos = vec![];
+    let mut satellites = satellites.to_vec();
+
+    satellites.sort_by_cached_key(|s| {
+        cached_elcs
+            .iter()
+            .map(|(k, v)| {
+                (
+                    register.elc(
+                        view(&register.species, &t[*k].content)
+                            .chain([register.species[*s]].iter()),
+                    ) - v,
+                    -register
+                        .species_tree
+                        .node_topological_depth(register.species[*s]),
+                    &register.proteins[*s],
+                )
+            })
+            .min()
+            .unwrap()
+    });
 
     for &id in satellites.iter() {
-        let log = register.proteins[id] == "ENSSHBP00005000063";
+        let log = register.proteins[id] == "ENSLLEP00000023490";
         let mut candidate_clusters = t
             .nodes()
             .copied()
@@ -639,10 +659,11 @@ fn inject_solos(
     solos_ids: &[NodeID],
     register: &Register,
 ) -> Vec<NodeID> {
+    let mut solos_ids = solos_ids.to_vec();
     let mut true_solos = vec![];
 
-    for &id in solos_ids {
-        let log = register.proteins[id] == "ENSLLTP00000002751";
+    for &id in solos_ids.iter() {
+        let log = ["ENSTMTP00000017759"].contains(&register.proteins[id].as_str());
 
         let mut candidate_clusters = t
             .nodes()
