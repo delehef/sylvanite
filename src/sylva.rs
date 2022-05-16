@@ -275,10 +275,12 @@ fn make_register(
         })
         .collect::<Result<Vec<_>>>()?;
 
+    info!("Parsing synteny matrix");
     let synteny_matrix = &format!("{}/dists/synteny/tree-{:0>5}.dist", DATA_ROOT, id);
     let synteny = parse_dist_matrix(&synteny_matrix, &proteins)
         .with_context(|| format!("while reading synteny matrix `{}`", synteny_matrix))?;
 
+    info!("Parsing divergence matrix");
     let divergence_matrix = &format!("{}/dists/divergence/tree-{}.dist", DATA_ROOT, id);
     let divergence = parse_dist_matrix(&divergence_matrix, &proteins)
         .with_context(|| format!("failed to read sequence matrix `{}`", divergence_matrix))?;
@@ -297,6 +299,7 @@ fn make_register(
         })
         .collect::<HashMap<_, _>>();
 
+    info!("Storing gene data");
     let landscape_sizes = proteins
         .iter()
         .map(|p| book.get(p).unwrap().landscape.len())
@@ -419,6 +422,7 @@ fn find_threshold(register: &Register) -> f32 {
         avg_comp.push(round(compacities, 2));
     }
 
+    info!("Finding optimal threshold");
     let mut cmpct_maxima = (1..tts.len() - 1)
         .filter_map(|i| {
             if avg_comp[i - 1] < avg_comp[i] && avg_comp[i] >= avg_comp[i + 1] {
@@ -618,6 +622,7 @@ fn inject_satellites(
                 register.elc(view(&register.species, &t[parent].content)),
             );
         } else {
+            info!("Creating a new cluster for {}", register.proteins[id]);
             let new_cluster = t.add_node(&[id], register.species[id], Some(1));
             cached_elcs.insert(
                 new_cluster,
@@ -669,7 +674,14 @@ fn inject_solos(
                 let c = cc.1;
                 info!(
                     "    {:20} -- ΔELC: {:3} IN:{} NARY: {} DV: {:2.2}",
-                    register.proteins[t[cc.0].content[0]], c.0, c.1, c.3, c.2
+                    view(&register.proteins, &t[cc.0].content)
+                        .sorted()
+                        .next()
+                        .unwrap(),
+                    c.0,
+                    c.1,
+                    c.3,
+                    c.2
                 );
             }
         }
@@ -742,7 +754,7 @@ fn inject_extended(
         touched = false;
 
         for id in extended.iter() {
-            let log = register.proteins[*id] == "ENSTBEP00000011930";
+            let log = ["ENSNSUP00000004150"].contains(&register.proteins[*id].as_str());
 
             let mut candidate_clusters = t
                 .nodes()
@@ -1075,6 +1087,7 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
     let roots = t[1].children.clone();
 
     for &i in &roots {
+        let log = false; // view(&register.proteins, &t[i].content).any(|x| x == "ENSMSIP00000026938");
         let mut dups = create_duplications(register, t, i);
         dups.sort_by_cached_key(|f| {
             let all_species = f
@@ -1111,6 +1124,14 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
             });
 
             while let Some(d) = f.pop() {
+                let log = view(&register.proteins, &d.content).any(|x| x == "ENSMSIP00000026938");
+                if log {
+                    println!(
+                        "{} {}",
+                        register.proteins[d.content[0]],
+                        register.species_name(d.root)
+                    );
+                }
                 let mut root_candidates = t
                     .descendants(i)
                     .iter()
@@ -1125,10 +1146,24 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
                         };
                         let t_depth = t.topo_depth(*n) as i64;
                         (-t_depth, -synteny)
-                    });
+                    })
+                    .collect::<Vec<_>>();
 
-                let current_root = if let Some(root) = root_candidates.next() {
-                    root
+                if log {
+                    for &c in root_candidates.iter() {
+                        println!(
+                            "TOPODPTH: {:3} SYN: {:2.2}",
+                            t.topo_depth(c),
+                            register
+                                .synteny
+                                .masked(&d.content, &t.descendant_leaves(c))
+                                .max()
+                        );
+                    }
+                }
+
+                let current_root = if let Some(root) = root_candidates.first() {
+                    *root
                 } else {
                     i
                 };
@@ -1262,7 +1297,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             })
             .collect::<Vec<_>>();
         candidate_parents.sort_by_key(|c| (c.1 .0, -c.1 .1, c.1 .2));
-        let log = true;
+        let log = false;
 
         if log {
             println!("\n\n=== BEFORE ===");
@@ -1531,6 +1566,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
     info!("Building register");
     let (register, mut extended, solos) = make_register(id, &gene_tree, &book)?;
 
+    info!("Optimizing threshold");
     let tt = dbg!(find_threshold(&register));
 
     let mut tree = PolytomicGeneTree::new();
