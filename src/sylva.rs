@@ -243,7 +243,12 @@ fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatr
         let gi = ids[i].as_ref();
         for j in 0..n {
             let gj = ids[j].as_ref();
-            r[(i, j)] = tmp[(r2g[gi], r2g[gj])];
+            r[(i, j)] = tmp[(
+                *r2g.get(gi)
+                    .with_context(|| format!("`{}` not found in {}", gi, filename))?,
+                *r2g.get(gj)
+                    .with_context(|| format!("`{}` not found in {}", gj, filename))?,
+            )];
         }
     }
 
@@ -271,7 +276,7 @@ fn make_register(
         .map(|p| {
             book.get(p)
                 .map(|p| p.gene.to_owned())
-                .ok_or(anyhow!(format!("Protein `{}` not found in database", p)))
+                .ok_or(anyhow!(format!("`{}` not found in database", p)))
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -302,8 +307,14 @@ fn make_register(
     info!("Storing gene data");
     let landscape_sizes = proteins
         .iter()
-        .map(|p| book.get(p).unwrap().landscape.len())
-        .collect::<Vec<_>>();
+        .map(|p| {
+            book.get(p)
+                .map(|x| x.landscape.len())
+                .ok_or(anyhow!(p.to_owned()))
+        })
+        .collect::<Result<Vec<_>>>()
+        .map_err(|e| anyhow!(format!("Can not find `{}` in database", e)))?;
+
     let mut core = (0..proteins.len())
         .filter(|&p| landscape_sizes[p] > CORE_THRESHOLD)
         .collect::<Vec<_>>();
@@ -1857,7 +1868,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
         let others = HashSet::from_iter(register.proteins.iter().cloned());
         let missings = others.difference(&mine).collect::<Vec<_>>();
         info!("{:?}", missings);
-        std::process::exit(1);
+        anyhow!("Genes mismatch");
     }
 
     Ok(())
