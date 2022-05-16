@@ -312,13 +312,13 @@ fn make_register(
     let all_species = HashSet::from_iter(species.iter().cloned());
 
     let extended = HashSet::<GeneID>::from_iter(
-        (1..proteins.len())
+        (0..proteins.len())
             .filter(|&p| 1 < landscape_sizes[p] && landscape_sizes[p] <= CORE_THRESHOLD),
     )
     .difference(&HashSet::<GeneID>::from_iter(core.iter().copied()))
     .copied()
     .collect::<Vec<_>>();
-    let solos = Vec::from_iter((1..proteins.len()).filter(|&p| landscape_sizes[p] == 1));
+    let solos = Vec::from_iter((0..proteins.len()).filter(|&p| landscape_sizes[p] == 1));
     let register = Register {
         size: proteins.len(),
         landscape_size: landscape_sizes,
@@ -578,7 +578,14 @@ fn inject_satellites(
                 let c = cc.1;
                 info!(
                     "    {:20} --> #{:3} -- SYN: {:.2} ΔELC: {:3} DV: {:2.2}",
-                    register.proteins[t[cc.0].content[0]], cc.0, c.2, c.0, c.1
+                    view(&register.proteins, &t[cc.0].content)
+                        .sorted()
+                        .next()
+                        .unwrap(),
+                    cc.0,
+                    c.2,
+                    c.0,
+                    c.1
                 );
             }
         }
@@ -728,7 +735,7 @@ fn inject_extended(
                         view(&register.species, c_content).chain([register.species[*id]].iter()),
                     ) - cached_elcs[&c];
                     let divergence = round(register.divergence.masked(&[*id], c_content).min(), 2);
-                    let synteny = -round(local_synteny.masked(&[*id], c_content).max(), 2);
+                    let synteny = -round(local_synteny.masked(&[*id], &core_content[&c]).max(), 2);
                     (
                         c,
                         (delta_elc, OrderedFloat(divergence), OrderedFloat(synteny)),
@@ -804,7 +811,7 @@ fn grow_duplication(
     sources: &mut HashMap<SpeciesID, Vec<GeneID>>,
     seed_species: SpeciesID,
     register: &Register,
-) -> Vec<Duplication> {
+) -> Duplications {
     let mut ds = sources[&seed_species]
         .iter()
         .map(|&seed| Duplication {
@@ -949,7 +956,7 @@ fn create_duplications(
     register: &Register,
     tree: &PolytomicGeneTree,
     reference: usize,
-) -> Vec<Vec<Duplication>> {
+) -> Vec<Duplications> {
     let mut dups = Vec::new();
     let mut sources = HashMap::<SpeciesID, Vec<GeneID>>::new();
     for i in &tree[reference].content {
@@ -1006,7 +1013,8 @@ fn create_duplications(
                 root: register.species_tree.mrca(&[*s]).unwrap(),
                 content: sources[s].clone(),
                 species: HashSet::from_iter([*s].into_iter()),
-            }])
+            }]);
+            sources.remove(s);
         }
     }
 
@@ -1180,9 +1188,8 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
         let mut speciess = HashMap::new();
         speciess.insert(
             a,
-            leaves[&a]
-                .iter()
-                .map(|g| register.species[*g])
+            view(&register.species, &leaves[&a])
+                .copied()
                 .collect::<HashSet<SpeciesID>>(),
         );
         let mut context_nodes = HashMap::new();
