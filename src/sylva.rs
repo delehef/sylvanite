@@ -104,16 +104,16 @@ impl Register {
             "UNKNWN".into()
         }
     }
-    pub fn span(&self, mrca: SpeciesID) -> Vec<SpeciesID> {
-        self.species_tree.leaves_of(mrca)
+    pub fn span(&self, mrca: SpeciesID) -> &[SpeciesID] {
+        self.species_tree.cached_leaves_of(mrca)
     }
 
-    pub fn mrca_span<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> Vec<SpeciesID> {
+    pub fn mrca_span<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> &[SpeciesID] {
         self.span(self.species_tree.mrca(species).unwrap())
     }
 
     fn rec_elc(&self, me: SpeciesID, missings: &mut HashSet<SpeciesID>, only_large: bool) -> i64 {
-        let my_span = HashSet::<SpeciesID>::from_iter(self.span(me).into_iter());
+        let my_span = HashSet::<SpeciesID>::from_iter(self.span(me).into_iter().copied());
         return if my_span.is_subset(&missings) {
             if !only_large || my_span.len() > 1 {
                 1
@@ -136,7 +136,11 @@ impl Register {
     pub fn elc<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> i64 {
         let species: Vec<SpeciesID> = species.into_iter().copied().collect();
         let mrca = self.species_tree.mrca(&species).unwrap();
-        let mut missings = HashSet::<SpeciesID>::from_iter(self.span(mrca))
+        let mut missings = self
+            .span(mrca)
+            .iter()
+            .copied()
+            .collect::<HashSet<SpeciesID>>()
             .difference(&HashSet::from_iter(species.iter().copied()))
             .copied()
             .collect::<HashSet<_>>();
@@ -150,7 +154,7 @@ impl Register {
     pub fn ellc<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> i64 {
         let species: Vec<SpeciesID> = species.into_iter().copied().collect();
         let mrca = self.species_tree.mrca(&species).unwrap();
-        let mut missings = HashSet::<SpeciesID>::from_iter(self.span(mrca))
+        let mut missings = HashSet::<SpeciesID>::from_iter(self.span(mrca).iter().copied())
             .difference(&HashSet::from_iter(species.iter().copied()))
             .copied()
             .collect::<HashSet<_>>();
@@ -908,7 +912,8 @@ fn grow_duplication(
             let filling = d.species.len() as f32
                 / register
                     .mrca_span(&d.species)
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .collect::<HashSet<_>>()
                     .intersection(&register.all_species)
                     .count() as f32;
@@ -1173,9 +1178,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
         let candidate_parents = t
             .nodes()
             .copied()
-            .filter(|&b| b != 1)
-            .filter(|&b| b != a)
-            .filter(|&b| t[b].tag == t[a].tag)
+            .filter(|&b| b != 1 && b != a && t[b].tag == t[a].tag)
             .filter(|&b| !t.cached_descendants(a).unwrap().contains(&b))
             .collect::<Vec<_>>();
 
@@ -1340,8 +1343,6 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
 
             t.move_node(child, parent);
             t.cache_descendants(parent);
-        } else {
-            warn!("No parent for {}", a);
         }
     }
 
@@ -1735,6 +1736,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
         "Assembling final tree -- {} subtrees",
         tree[root].children.len()
     );
+
     make_final_tree(&mut tree, &register);
     info!("Done.");
     File::create(&format!("{}/{}_reconciled.nwk", &out_root, id))?.write_all(
@@ -1746,10 +1748,6 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
     info!("Pruning tree...");
     prune_tree(&mut tree);
     info!("Done.");
-
-    if register.size != tree.descendant_leaves(1).len() {
-        error!("Missing genes");
-    }
 
     for k in tree.nodes() {
         if tree[*k].children.len() > 2 {
@@ -1765,6 +1763,30 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
             .as_bytes(),
     )?;
+
+    if register.size != tree.descendant_leaves(root).len() {
+        error!(
+            "Gene mismatch: expected {}, found {}",
+            register.size,
+            tree.descendant_leaves(root).len()
+        );
+        let mut mine = tree.descendant_leaves(root);
+        mine.sort();
+        for gs in mine.windows(2) {
+            if gs[0] == gs[1] {
+                warn!("Double: {}", register.proteins[gs[0]]);
+            }
+        }
+        let mine = HashSet::<String>::from_iter(
+            tree.descendant_leaves(root)
+                .iter()
+                .map(|l| register.proteins[*l].to_owned()),
+        );
+        let others = HashSet::from_iter(register.proteins.iter().cloned());
+        let missings = others.difference(&mine).collect::<Vec<_>>();
+        info!("{:?}", missings);
+        std::process::exit(1);
+    }
 
     Ok(())
 }
