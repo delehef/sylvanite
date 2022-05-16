@@ -373,15 +373,25 @@ fn find_threshold(register: &Register) -> f32 {
     let mut counts = Vec::<i64>::new();
     let mut reds = Vec::new();
 
-    for &t in &tts {
-        let mut clusters = clusterize(&register.synteny.masked(&register.core, &register.core), t)
-            .into_iter()
-            .filter(|c| !c.is_empty())
-            .collect::<Vec<_>>();
-        clusters
-            .iter_mut()
-            .for_each(|c| c.iter_mut().for_each(|x| *x = register.core[*x]));
+    info!("Pre-computing clusters...");
+    let clusterss = tts
+        .par_iter()
+        .map(|&t| {
+            let mut clusters =
+                clusterize(&register.synteny.masked(&register.core, &register.core), t)
+                    .into_iter()
+                    .filter(|c| !c.is_empty())
+                    .collect::<Vec<_>>();
+            clusters
+                .iter_mut()
+                .for_each(|c| c.iter_mut().for_each(|x| *x = register.core[*x]));
 
+            clusters
+        })
+        .collect::<Vec<_>>();
+
+    info!("Computing optimization targets");
+    for (&t, clusters) in tts.iter().zip(clusterss.into_iter()) {
         let redundancies = clusters.iter().map(|c| c.len()).sum::<usize>() as f32
             / clusters
                 .iter()
@@ -524,6 +534,8 @@ fn inject_satellites(
             .nodes()
             .copied()
             .filter(|c| !t[*c].content.is_empty())
+            .sorted()
+            .par_bridge()
             .filter(|c| {
                 register
                     .mrca_span(view(&register.species, &t[*c].content))
@@ -630,6 +642,7 @@ fn inject_solos(
         let mut candidate_clusters = t
             .nodes()
             .copied()
+            .par_bridge()
             .filter(|c| !t[*c].content.is_empty())
             .map(|c| {
                 let c_content = &t[c].content;
@@ -718,6 +731,7 @@ fn inject_extended(
     let mut cached_elcs = t
         .nodes()
         .copied()
+        .par_bridge()
         .filter(|c| !t[*c].content.is_empty())
         .map(|c| (c, register.elc(view(&register.species, &t[c].content))))
         .collect::<HashMap<_, _>>();
@@ -733,6 +747,7 @@ fn inject_extended(
             let mut candidate_clusters = t
                 .nodes()
                 .copied()
+                .par_bridge()
                 .filter(|c| !t[*c].content.is_empty())
                 .map(|c| {
                     let c_content = &t[c].content;
@@ -1228,7 +1243,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
         }
 
         let mut candidate_parents = candidate_parents
-            .iter()
+            .par_iter()
             .filter(|b| !leaves[b].is_empty())
             .map(|b| {
                 let delc = register.elc(speciess[&a].iter().chain(speciess[b].iter()))
