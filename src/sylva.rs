@@ -1253,7 +1253,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
                 -register.species_tree.node_topological_depth(t[*x].tag),
                 (t.descendant_leaves(*x).len() as i64),
             )
-        })
+        }) // FIXME for recursive inclusion
         .collect::<Vec<_>>();
 
     while let Some(a) = todo.pop() {
@@ -1355,7 +1355,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             .map(|c| c.1 .1)
             .any(|s| s >= RELAXED_SYNTENY_THRESHOLD)
         {
-            debug!("Filtering by synteny");
+            // debug!("Filtering by synteny");
             candidate_parents.retain(|c| c.1 .1 >= RELAXED_SYNTENY_THRESHOLD);
             candidate_parents.sort_by_key(|c| {
                 (
@@ -1370,7 +1370,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             .map(|c| c.1 .2)
             .any(|d| d <= OrderedFloat(0.5))
         {
-            debug!("Filtering by divergence");
+            // debug!("Filtering by divergence");
             candidate_parents.retain(|c| c.1 .2 < OrderedFloat(0.5));
             candidate_parents.sort_by_key(|c| {
                 (
@@ -1599,7 +1599,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
     let (register, mut extended, solos) = make_register(id, &gene_tree, &book)?;
 
     info!("Optimizing threshold");
-    let tt = dbg!(find_threshold(&register));
+    let tt = find_threshold(&register);
 
     let mut tree = PolytomicGeneTree::new();
     let root = tree.add_node(&[], 0, None);

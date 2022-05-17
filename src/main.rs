@@ -1,9 +1,7 @@
 use anyhow::*;
 use clap::Parser;
-use dede::*;
 use indicatif::ProgressBar;
 use log::*;
-use rusqlite::Connection;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::Read;
@@ -11,7 +9,6 @@ use std::io::Write;
 use std::sync::Mutex;
 use std::time::Instant;
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
 };
 use utils::*;
@@ -155,16 +152,21 @@ fn main() -> Result<()> {
         .num_threads(args.threads)
         .build_global()
         .unwrap();
-    debug!("Using {} threads", rayon::current_num_threads() / 2);
+    debug!("Using {} threads", rayon::current_num_threads());
 
     let lines =
         std::fs::read_to_string("/users/ldog/delehell/duplications/data/SuperTrees.nhx")
             .unwrap();
     let lines = lines.split('\n').collect::<Vec<_>>();
     let register = read_db(&args.database, args.window).unwrap();
-    let now = Instant::now();
-    sylva::do_family(&lines[720], 720, "pipo", &register)?;
-    debug!("Done in {}ms.", now.elapsed().as_millis());
+
+    for i in 0..lines.len() {
+    // for i in [722, 759, 760, 777, 1066, 2053, 638, 611] {
+    // for i in [0] {
+        let now = Instant::now();
+        sylva::do_family(&lines[i], i, "pipo3", &register)?;
+        debug!("Done in {:.2}s.", now.elapsed().as_secs_f32());
+    }
     return Ok(());
 
     for p in args.infiles.iter() {
