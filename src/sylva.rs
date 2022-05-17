@@ -1797,7 +1797,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
     );
     let true_solos = inject_solos(&mut tree, &solos, &register);
     for id in true_solos {
-        tree.add_node(&[id], register.species[id], Some(0));
+        tree.add_node(&[id], register.species[id], Some(root));
     }
     info!("Done.");
     File::create(&format!("{}/{}_clusters.nwk", &out_root, id))?.write_all(
