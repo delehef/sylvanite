@@ -1306,7 +1306,7 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
     }
 }
 
-fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
+fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
     t.cache_descendants(1);
     let mut todo = t[1]
         .children
@@ -1314,17 +1314,20 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
         .copied()
         .sorted_by_cached_key(|x| {
             (
-                -register.species_tree.node_topological_depth(t[*x].tag),
                 (t.descendant_leaves(*x).len() as i64),
+                // -register.species_tree.node_topological_depth(t[*x].tag),
             )
-        }) // FIXME for recursive inclusion
+        }) // .pop(), so implicit reverse ordering
         .collect::<Vec<_>>();
+
+    let aa = todo.pop().unwrap();
+    let new_root = reconcile_upstream(t, aa, register, None);
 
     while let Some(a) = todo.pop() {
         let candidate_parents = t
-            .nodes()
-            .copied()
-            .filter(|&b| b != 1 && b != a && t[b].tag == t[a].tag)
+            .descendants(new_root)
+            .into_iter()
+            .filter(|&b| b != new_root && b != a && t[b].tag == t[a].tag)
             .filter(|&b| !t.cached_descendants(a).unwrap().contains(&b))
             .collect::<Vec<_>>();
 
