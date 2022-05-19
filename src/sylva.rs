@@ -773,10 +773,14 @@ fn inject_extended(t: &mut PolytomicGeneTree, extended: &mut [NodeID], register:
             }
         }
     }
-    extended
-        .sort_by_cached_key(|&id| -OrderedFloat(local_synteny.masked(&[id], &register.core).max()));
+    extended.sort_by_cached_key(|&id| {
+        (
+            -OrderedFloat(register.synteny.masked(&[id], &register.core).max()),
+            OrderedFloat(register.divergence.masked(&[id], &register.core).min()),
+        )
+    });
 
-    let mut core_content = t
+    let core_content = t
         .nodes()
         .copied()
         .map(|c| {
