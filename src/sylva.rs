@@ -1358,6 +1358,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             let mut context_node = *i;
             'search_context: while t.descendant_leaves(context_node).len() as f32
                 <= leaves[&a].len() as f32 / 2.0 + 1.
+                && t[context_node].parent.is_some()
             {
                 context_node = t[context_node].parent.unwrap();
                 if candidate_parents
@@ -1488,28 +1489,42 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             let child = a;
             let parent = *cluster.0;
 
-            if !t[parent].content.is_empty() {
-                let _content = t.add_node(
-                    &t[parent].content.clone(),
-                    register
-                        .species_tree
-                        .mrca(view(&register.species, &t[parent].content))
-                        .unwrap(),
-                    Some(parent),
+            if log {
+                println!(
+                    "Parent: {}/{}",
+                    t[parent].content.len(),
+                    t[parent].children.len()
                 );
-                t[parent].content.clear();
             }
 
-            if t[parent].children.len() > 1 {
-                let node_alpha = t.add_node(&[], t[parent].tag, None);
-                for c in t[parent].children.clone().into_iter() {
-                    t.move_node(c, node_alpha);
+            // If the child is plugged on a completely empty subtree, it should replace it to lock its docking points
+            if t.descendant_leaves(parent).is_empty() {
+                t.move_node(child, t[parent].parent.unwrap());
+                t.delete_node(parent);
+            } else {
+                if !t[parent].content.is_empty() {
+                    let _content = t.add_node(
+                        &t[parent].content.clone(),
+                        register
+                            .species_tree
+                            .mrca(view(&register.species, &t[parent].content))
+                            .unwrap(),
+                        Some(parent),
+                    );
+                    t[parent].content.clear();
                 }
-                t.move_node(node_alpha, parent);
-            }
 
-            t.move_node(child, parent);
-            t.cache_descendants(parent);
+                if t[parent].children.len() > 1 {
+                    let node_alpha = t.add_node(&[], t[parent].tag, None);
+                    for c in t[parent].children.clone().into_iter() {
+                        t.move_node(c, node_alpha);
+                    }
+                    t.move_node(node_alpha, parent);
+                }
+
+                t.move_node(child, parent);
+                t.cache_descendants(parent);
+            }
         }
     }
 
