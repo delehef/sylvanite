@@ -1120,22 +1120,11 @@ fn create_duplications(
         .filter(|s| sources[s].len() > 1)
         .collect::<HashSet<_>>();
 
-    while !seed_speciess.is_empty() {
-        let seed_species = seed_speciess[0];
-        let new_family = grow_duplication(&mut sources, seed_species, register);
+    while let Some(seed_species) = seed_speciess.get(0) {
+        let new_family = grow_duplication(&mut sources, *seed_species, register);
         dups.push(new_family);
-        sources.remove(&seed_species);
-        seed_speciess = sources
-            .keys()
-            .copied()
-            .filter(|s| sources[s].len() > 1)
-            .sorted_by_cached_key(|s| {
-                (
-                    -(sources[s].len() as i64),
-                    -register.species_tree.node_topological_depth(*s),
-                )
-            })
-            .collect::<Vec<_>>();
+        sources.remove(seed_species);
+        seed_speciess.retain(|s| sources.get(s).map(|v| v.len() > 1).unwrap_or(false));
     }
 
     assert!(sources.values().all(|l| l.len() <= 1));
