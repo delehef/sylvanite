@@ -3,6 +3,10 @@ use log::*;
 use rayon::prelude::*;
 use rusqlite::Connection;
 use std::collections::HashMap;
+use std::io::BufWriter;
+use std::io::Write;
+
+
 pub type GeneBook = HashMap<String, Gene>;
 pub struct Gene {
     pub gene: String,
@@ -68,4 +72,32 @@ pub fn read_db(filename: &str, window: usize) -> Result<GeneBook> {
 
     info!("Done.");
     Ok(r)
+}
+
+pub fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
+    m: &[T],
+    ids: &[L],
+    mut out: BufWriter<Box<dyn std::io::Write + 'a>>,
+) -> Result<()> {
+    let n = ids.len();
+    assert!(m.len() == n * (n - 1) / 2);
+
+    // 1. Write the number of elements
+    writeln!(out, "{}", ids.len())?;
+
+    // 2. Write the matrix itself
+    for (i, id) in ids.iter().enumerate() {
+        write!(out, "{}", id)?;
+        for j in 0..i {
+            write!(out, "\t{:.5}", m[i * (i - 1) / 2 + j])?;
+        }
+        write!(out, "\t{:.5}", 0.)?;
+        for j in i + 1..ids.len() {
+            write!(out, "\t{:.5}", m[j * (j - 1) / 2 + i])?;
+        }
+        writeln!(out)?;
+    }
+
+    // 3. Flush the output
+    Ok(out.flush()?)
 }

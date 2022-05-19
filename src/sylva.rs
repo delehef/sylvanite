@@ -11,6 +11,7 @@ use std::fmt::Display;
 use std::fs::File;
 use std::hash::Hash;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::time::Instant;
 
 const RELAXED_SYNTENY_THRESHOLD: OrderedFloat<f32> = OrderedFloat(0.15);
 const MIN_INFORMATIVE_SYNTENY: usize = 3;
@@ -194,32 +195,6 @@ fn vec_inter<T: Copy + Eq + Hash>(a: &[T], b: &[T]) -> HashSet<T> {
         .intersection(&HashSet::<T>::from_iter(b.iter().copied()))
         .copied()
         .collect::<HashSet<T>>()
-}
-
-fn write_dist_matrix<'a, T: Display, L: Display>(
-    filename: &str,
-    m: &dyn Matrix<T>,
-    ids: &[L],
-) -> Result<()> {
-    let mut out = BufWriter::with_capacity(30_000_000, File::create(filename)?);
-    let n = ids.len();
-    assert!(m.nrows() == n);
-    assert!(m.is_square());
-
-    // 1. Write the number of elements
-    writeln!(out, "{}", ids.len())?;
-
-    // 2. Write the matrix itself
-    for (i, id) in ids.iter().enumerate() {
-        write!(out, "{}", id)?;
-        for j in 0..ids.len() {
-            write!(out, "\t{:.5}", m[(i, j)])?;
-        }
-        writeln!(out)?;
-    }
-
-    // 3. Flush the output
-    Ok(out.flush()?)
 }
 
 fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatrix<f32>> {
@@ -1584,18 +1559,19 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
         }
     }
 
-    // for k in t.nodes().copied().collect::<Vec<_>>().iter() {
-    //     if !t.descendant_leaves(*k).is_empty() {
-    //         t[*k].tag = register
-    //             .species_tree
-    //             .mrca(view(&register.species, &t.descendant_leaves(*k)))
-    //             .unwrap();
-    //     }
-    // }
     assert!(t.descendant_leaves(1).len() == 0);
     assert!(t[1].children.len() == 0);
     assert!(t[1].content.len() == 0);
     t.delete_node(1);
+
+    for k in t.nodes().copied().collect::<Vec<_>>().iter() {
+        if !t.descendant_leaves(*k).is_empty() {
+            t[*k].tag = register
+                .species_tree
+                .mrca(view(&register.species, &t.descendant_leaves(*k)))
+                .unwrap();
+        }
+    }
     new_root
 }
 
@@ -1764,7 +1740,7 @@ fn reconcile_upstream(
     root
 }
 
-pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<()> {
+fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<PolytomicGeneTree> {
     let logs_root = format!("logs/{}/", batch);
     let out_root = format!("out/{}/", batch);
 
@@ -2051,5 +2027,18 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
         return Err(anyhow!("genes mismatch"));
     }
 
+    Ok(tree)
+}
+
+pub fn do_file(filename: &str, register: &GeneBook) -> Result<()> {
+    let lines =
+        std::fs::read_to_string("/users/ldog/delehell/duplications/data/SuperTrees.nhx").unwrap();
+    let lines = lines.split('\n').collect::<Vec<_>>();
+
+    for i in 0..lines.len() {
+        let now = Instant::now();
+        let out_tree = do_family(&lines[i], i, "pipo3", &register)?;
+        info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
+    }
     Ok(())
 }
