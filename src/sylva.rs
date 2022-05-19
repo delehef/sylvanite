@@ -921,6 +921,25 @@ fn grow_duplication(
         })
         .collect::<Vec<_>>();
     sources.get_mut(&seed_species).unwrap().clear();
+    let log = view(&register.proteins, ds.iter().flat_map(|d| d.content.iter())).any(|s| {
+        [
+            "ENSDCDP00000006390",
+            "ENSHHUP00000059113",
+            "ENSOKIP00005017062",
+            "ENSOMYP00000060796",
+            "ENSOTSP00005012508",
+            "ENSPKIP00000011431",
+            "ENSSARP00000000739",
+            "ENSSGRP00000084880",
+            "ENSSSAP00000087432",
+            "ENSSTUP00000100855",
+        ]
+        .contains(&s.as_str())
+    });
+    if log {
+        dbg!(seed_species);
+        ds.iter().for_each(|d| d.pretty(register))
+    }
     let mut n = ds[0].root;
 
     let mut history = Vec::new();
@@ -1365,6 +1384,9 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             );
         }
 
+        let log = view(&register.proteins, &t.descendant_leaves(a))
+            .any(|s| ["ENSACCP00020023244"].contains(&s.as_str()));
+
         let mut candidate_parents = candidate_parents
             .par_iter()
             .filter(|b| !leaves[b].is_empty())
@@ -1392,15 +1414,20 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
                 let bb = b.1;
                 let b = b.0;
                 info!(
-                    "{:4}/{:4} ({:4} leaves) DELC: {:2} SYN: {:2.2} DV: {:2.2} T: {} {}",
+                    "{:20} {:4}/{:4} ({:3}/{:3} leaves) DELC: {:2} SYN: {:2.2} DV: {:2.2} T: {} {}",
+                    register.species_name(t[*b].tag),
                     b,
                     context_nodes[b],
+                    t.descendant_leaves(*b).len(),
                     leaves[b].len(),
                     bb.0,
                     bb.1,
                     bb.2,
                     register.species_name(t[*b].tag),
-                    register.proteins[leaves[b][0]]
+                    leaves[b]
+                        .get(0)
+                        .map(|g| register.proteins[*g].as_str())
+                        .unwrap_or("EMPTY")
                 );
             }
         }
