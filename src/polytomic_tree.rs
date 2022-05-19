@@ -35,12 +35,7 @@ impl<T: Clone, S> PTree<T, S> {
         }
     }
 
-    pub fn add_node(
-        &mut self,
-        content: &[T],
-        tag: S,
-        parent: Option<NodeID>,
-    ) -> NodeID {
+    pub fn add_node(&mut self, content: &[T], tag: S, parent: Option<NodeID>) -> NodeID {
         self.current_id = self.current_id.checked_add(1).expect("Tree is too big");
         let id = self.current_id;
         assert!(!self.nodes.contains_key(&id), "{} already exists", id);
@@ -94,6 +89,9 @@ impl<T: Clone, S> PTree<T, S> {
 
     pub fn delete_node(&mut self, n: NodeID) {
         assert!(self.nodes.contains_key(&n));
+        for c in self[n].children.clone().into_iter() {
+            self.delete_node(c);
+        }
         self.unplug(n);
         self.nodes.remove(&n);
     }
@@ -234,9 +232,26 @@ impl<T: Clone, S> PTree<T, S> {
             .keys()
             .filter(|k| self.nodes[&k].parent.is_none())
         {
-            r.push_str(&self.format_leaf_newick(*k, f_leaf, f_tag));
+            let mut k = *k;
+            while self[k].children.len() == 1 {
+                k = self[k].children[0];
+            }
+            r.push_str(&self.format_leaf_newick(k, f_leaf, f_tag));
             r.push_str(";\n");
         }
+
+        r
+    }
+    pub fn to_newick_from(
+        &self,
+        i: usize,
+        f_leaf: &dyn Fn(&T) -> String,
+        f_tag: &dyn Fn(&S) -> String,
+    ) -> String {
+        let mut r = String::new();
+
+        r.push_str(&self.format_leaf_newick(i, f_leaf, f_tag));
+        r.push_str(";\n");
 
         r
     }
