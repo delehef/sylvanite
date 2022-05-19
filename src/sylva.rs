@@ -1392,15 +1392,35 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             .par_iter()
             .filter(|b| !leaves[b].is_empty())
             .map(|b| {
-                let delc = register.elc(speciess[&a].iter().chain(speciess[b].iter()))
-                    - register.elc(&speciess[b]);
+                let missing_left = speciess[&a].difference(&speciess[&b]);
+                let missing_right = speciess[&b].difference(&speciess[&a]);
+                let elc = register.elc(missing_left) + register.elc(missing_right);
                 let synteny = register.synteny.masked(&leaves[&a], &leaves[b]).max();
                 let divergence = register.divergence.masked(&leaves[&a], &leaves[b]).min();
+                if log && leaves[b].len() == 79 {
+                    println!(
+                        "My species: {}",
+                        speciess[&a]
+                            .iter()
+                            .map(|g| register.species_name(*g))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    );
+
+                    println!(
+                        "B species: {}",
+                        speciess[&b]
+                            .iter()
+                            .map(|g| register.species_name(*g))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    );
+                }
 
                 (
                     b,
                     (
-                        delc,
+                        elc,
                         OrderedFloat(round(synteny, 2)),
                         OrderedFloat(round(divergence, 2)),
                     ),
