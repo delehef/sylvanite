@@ -1047,7 +1047,7 @@ fn grow_duplication(
                     .collect::<HashSet<_>>()
                     .intersection(&register.all_species)
                     .count() as f32;
-            let filling_threshold = if total_span.len() <= 4 { 0. } else { 0.4 };
+            let filling_threshold = if total_span.len() <= 4 { 0.5 } else { 0.5 };
 
             if log {
                 // dbg!(i, filling_threshold, filling);
