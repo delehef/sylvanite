@@ -835,8 +835,8 @@ fn inject_extended(t: &mut PolytomicGeneTree, extended: &mut [NodeID], register:
 
             if syntenies.iter().any(|&s| s <= -RELAXED_SYNTENY_THRESHOLD) {
                 // Synteny is negated
-                if elcs.iter().any(|&e| e < 5) {
-                    candidate_clusters.retain(|c| c.1 .0 <= 5);
+                if elcs.iter().any(|&e| e < 3) {
+                    candidate_clusters.retain(|c| c.1 .0 <= 3);
                 }
                 if register.landscape_size[*id] > MIN_INFORMATIVE_SYNTENY {
                     if log {
@@ -1503,19 +1503,45 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
                 .max()
         })
         .collect::<Vec<_>>();
-    let mut root = 1;
+    let mut root = new_root;
+    dbg!(&tops);
     while let Some(to_plug) = tops.pop() {
         if !tops.is_empty() {
             let node_alpha = t.add_node(&[], t[to_plug].tag, Some(root));
             t.move_node(to_plug, node_alpha);
             root = t.add_node(&[], t[to_plug].tag, Some(node_alpha));
+            t[node_alpha].tag = register
+                .species_tree
+                .mrca(view(&register.species, &t.descendant_leaves(node_alpha)))
+                .unwrap();
         } else {
             t.move_node(to_plug, root);
         }
+
+        if !t.descendant_leaves(root).is_empty() {
+            t[root].tag = register
+                .species_tree
+                .mrca(view(&register.species, &t.descendant_leaves(root)))
+                .unwrap();
+        }
     }
+
+    // for k in t.nodes().copied().collect::<Vec<_>>().iter() {
+    //     if !t.descendant_leaves(*k).is_empty() {
+    //         t[*k].tag = register
+    //             .species_tree
+    //             .mrca(view(&register.species, &t.descendant_leaves(*k)))
+    //             .unwrap();
+    //     }
+    // }
+    assert!(t.descendant_leaves(1).len() == 0);
+    assert!(t[1].children.len() == 0);
+    assert!(t[1].content.len() == 0);
+    t.delete_node(1);
+    new_root
 }
 
-fn prune_tree(tree: &mut PolytomicGeneTree) {
+fn prune_tree(tree: &mut PolytomicGeneTree, root: usize) {
     info!("Pruning empty leaf nodes -- from {}", tree.nodes().count());
     loop {
         let todos = tree
@@ -1536,7 +1562,7 @@ fn prune_tree(tree: &mut PolytomicGeneTree) {
         let todos = tree
             .nodes()
             .copied()
-            .filter(|&k| tree[k].children.is_empty() && tree[k].content.len() == 1 && k != 1)
+            .filter(|&k| tree[k].children.is_empty() && tree[k].content.len() == 1 && k != root)
             .collect::<Vec<_>>();
 
         if let Some(k) = todos.get(0) {
@@ -1556,7 +1582,7 @@ fn prune_tree(tree: &mut PolytomicGeneTree) {
         let todos = tree
             .nodes()
             .copied()
-            .filter(|&k| k != 1 && tree[k].children.len() == 1 && tree[k].content.is_empty())
+            .filter(|&k| k != root && tree[k].children.len() == 1 && tree[k].content.is_empty())
             .collect::<Vec<_>>();
         if let Some(k) = todos.get(0) {
             tree.move_node(tree[*k].children[0], tree[*k].parent.unwrap());
@@ -1916,7 +1942,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
         tree[root].children.len()
     );
 
-    make_final_tree(&mut tree, &register);
+    let root = make_final_tree(&mut tree, &register);
     info!("Done.");
     File::create(&format!("{}/{}_reconciled.nwk", &out_root, id))?.write_all(
         &tree
