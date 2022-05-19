@@ -16,7 +16,6 @@ const RELAXED_SYNTENY_THRESHOLD: OrderedFloat<f32> = OrderedFloat(0.15);
 const MIN_INFORMATIVE_SYNTENY: usize = 3;
 const CORE_THRESHOLD: usize = 20;
 const WINDOW: usize = 15;
-const SEPARATOR: char = '#';
 const DATA_ROOT: &str = "/home/franklin/work/duplications/data/";
 
 type SpeciesID = usize;
@@ -37,15 +36,15 @@ fn sim_matrix(
     ks: &[usize],
     f: &dyn Fn(usize, usize) -> f32,
 ) {
-    for i in 0..ks.len() {
+    for (i, k) in ks.iter().enumerate() {
         print!(
             "{:2}/({:3}) {:20} |  ",
-            ks[i],
-            t[ks[i]].content.len(),
-            register.proteins[t[ks[i]].content[0]]
+            k,
+            t[*k].content.len(),
+            register.proteins[t[*k].content[0]]
         );
-        for j in 0..i {
-            print!("{:2.2}  ", f(ks[i], ks[j]))
+        for l in ks.iter().skip(i) {
+            print!("{:2.2}  ", f(*k, *l))
         }
         println!();
     }
@@ -81,7 +80,8 @@ impl Duplication {
         );
         println!(
             "  {:?}",
-            view(&register.species, &self.species)
+            self.species
+                .iter()
                 .map(|x| register.species_name(*x))
                 .collect::<Vec<String>>()
                 .join(" ")
@@ -135,7 +135,18 @@ impl Register {
 
     pub fn elc<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> i64 {
         let species: Vec<SpeciesID> = species.into_iter().copied().collect();
-        let mrca = self.species_tree.mrca(&species).unwrap();
+        if species.is_empty() {
+            return 0;
+        }
+
+        let mrca = self.species_tree.mrca(&species).expect(&format!(
+            "No MRCA for {}",
+            species
+                .iter()
+                .map(|&g| self.species_name(g))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
         let mut missings = self
             .span(mrca)
             .iter()
@@ -315,8 +326,16 @@ fn make_register(
         .collect::<Result<Vec<_>>>()
         .map_err(|e| anyhow!(format!("Can not find `{}` in database", e)))?;
 
-    let mut core = (0..proteins.len())
-        .filter(|&p| landscape_sizes[p] > CORE_THRESHOLD)
+    let mut core = proteins
+        .iter()
+        .enumerate()
+        .filter_map(|(i, _)| {
+            if landscape_sizes[i] > CORE_THRESHOLD {
+                Some(i)
+            } else {
+                None
+            }
+        })
         .collect::<Vec<_>>();
     if core.is_empty() {
         warn!("Core is empty; using all non-solo instead");
@@ -330,13 +349,20 @@ fn make_register(
         .collect::<Vec<SpeciesID>>();
     let all_species = HashSet::from_iter(species.iter().cloned());
 
-    let extended = HashSet::<GeneID>::from_iter(
-        (0..proteins.len())
-            .filter(|&p| 1 < landscape_sizes[p] && landscape_sizes[p] <= CORE_THRESHOLD),
-    )
-    .difference(&HashSet::<GeneID>::from_iter(core.iter().copied()))
-    .copied()
-    .collect::<Vec<_>>();
+    let extended = proteins
+        .iter()
+        .enumerate()
+        .filter_map(|(i, _)| {
+            if 1 < landscape_sizes[i] && landscape_sizes[i] <= CORE_THRESHOLD {
+                Some(i)
+            } else {
+                None
+            }
+        })
+        .collect::<HashSet<_>>()
+        .difference(&HashSet::<GeneID>::from_iter(core.iter().copied()))
+        .copied()
+        .collect::<Vec<_>>();
     let solos = Vec::from_iter((0..proteins.len()).filter(|&p| landscape_sizes[p] == 1));
     let register = Register {
         size: proteins.len(),
@@ -733,17 +759,8 @@ fn inject_solos(
     true_solos
 }
 
-fn inject_extended(
-    t: &mut PolytomicGeneTree,
-    extended: &mut [NodeID],
-    register: &Register,
-) -> Vec<NodeID> {
+fn inject_extended(t: &mut PolytomicGeneTree, extended: &mut [NodeID], register: &Register) {
     let mut extended = extended.to_owned();
-    let mut new_solos = vec![];
-
-    if extended.is_empty() {
-        return new_solos;
-    }
 
     let mut local_synteny = register.synteny.clone();
     for i in extended.iter() {
@@ -844,8 +861,25 @@ fn inject_extended(
                 for cc in &candidate_clusters {
                     let c = cc.1;
                     info!(
-                        "    {:20} --> SYN: {:.2} DV: {:2.2} ΔELC: {}",
-                        register.proteins[t[cc.0].content[0]], c.2, c.1, c.0
+                        "    {:20} --> SYN: {:.2} DV: {:2.2} ΔELC: {} CRT: {}",
+                        register.proteins[t[cc.0].content[0]],
+                        c.2,
+                        c.1,
+                        c.0,
+                        register.species_tree.node_topological_depth(
+                            register
+                                .species_tree
+                                .mrca(view(&register.species, &t[cc.0].content))
+                                .unwrap()
+                        ) - register.species_tree.node_topological_depth(
+                            register
+                                .species_tree
+                                .mrca(view(
+                                    &register.species,
+                                    t[cc.0].content.iter().chain([register.species[*id]].iter())
+                                ))
+                                .unwrap()
+                        )
                     );
                 }
             }
@@ -867,8 +901,6 @@ fn inject_extended(
         }
         extended = new_solos;
     }
-
-    new_solos
 }
 
 fn grow_duplication(
@@ -949,11 +981,27 @@ fn grow_duplication(
             }
         }
 
+        // if log {
+        //     for (i, pp) in putatives.iter().enumerate() {
+        //         for p in pp.iter() {
+        //             println!(
+        //                 "{} gets - {}/{} {}",
+        //                 i,
+        //                 register.species_name(p.1),
+        //                 register.proteins[p.0],
+        //                 p.2
+        //             );
+        //         }
+        //     }
+        // }
+
         let mut dcss = VecMatrix::<f32>::with_elem(ds.len(), ds.len(), 0.);
         for i in 0..ds.len() {
             for j in i..ds.len() {
                 dcss[(i, j)] = ds[i].species.len() as f32 / ds[j].species.len() as f32;
                 dcss[(j, i)] = ds[j].species.len() as f32 / ds[i].species.len() as f32;
+                // dcss[(i, j)] = ds[i].species.len() as f32 / ds[j].species.intersection(&ds[i].species).count() as f32;
+                // dcss[(j, i)] = ds[j].species.len() as f32 / ds[i].species.intersection(&ds[j].species).count() as f32;
             }
         }
 
@@ -978,6 +1026,9 @@ fn grow_duplication(
                     .count() as f32;
             let filling_threshold = if total_span.len() <= 4 { 0. } else { 0.4 };
 
+            if log {
+                // dbg!(i, filling_threshold, filling);
+            }
             if (filling > filling_threshold)
                 && (!putatives[i].is_empty())
                 && best_dcs > OrderedFloat(0.)
@@ -993,6 +1044,7 @@ fn grow_duplication(
             }
         }
         history.push(history_entry);
+        // if log { ds.iter().for_each(|d| d.pretty(register))}
     }
 
     'rewind: for i in (0..history.len()).rev() {
@@ -1329,7 +1381,6 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             })
             .collect::<Vec<_>>();
         candidate_parents.sort_by_key(|c| (c.1 .0, -c.1 .1, c.1 .2));
-        let log = false;
 
         if log {
             println!("\n\n=== BEFORE ===");
@@ -1371,7 +1422,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
             .any(|d| d <= OrderedFloat(0.5))
         {
             // debug!("Filtering by divergence");
-            candidate_parents.retain(|c| c.1 .2 < OrderedFloat(0.5));
+            candidate_parents.retain(|c| c.1 .2 <= OrderedFloat(0.5));
             candidate_parents.sort_by_key(|c| {
                 (
                     c.1 .2,  // Sequence
@@ -1395,7 +1446,10 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) {
                     bb.1,
                     bb.2,
                     register.species_name(t[*b].tag),
-                    register.proteins[leaves[b][0]]
+                    leaves[b]
+                        .get(0)
+                        .map(|g| register.proteins[*g].as_str())
+                        .unwrap_or("EMPTY")
                 );
             }
         }
@@ -1521,7 +1575,7 @@ fn reconcile(
     graft: Option<usize>,
     from: Option<SpeciesID>,
     full: bool,
-) {
+) -> usize {
     fn rec_add(
         t: &mut PolytomicGeneTree,
         parent: usize,
@@ -1573,15 +1627,57 @@ fn reconcile(
         }
     }
 
-    if ps.is_empty() && !full {
-        warn!("Empty reconciling");
-        return;
-    }
-
     let speciess = view(&register.species, ps).copied().collect::<HashSet<_>>();
     let mrca = from.unwrap_or_else(|| register.species_tree.mrca(&speciess).unwrap());
     let root = graft.unwrap_or_else(|| t.add_node(&[], mrca, None));
-    rec_add(t, root, mrca, ps, &speciess, register, full);
+
+    if ps.is_empty() && !full {
+        warn!("Empty reconciling");
+    } else {
+        rec_add(t, root, mrca, ps, &speciess, register, full);
+    }
+
+    root
+}
+
+fn reconcile_upstream(
+    t: &mut PolytomicGeneTree,
+    existing: NodeID,
+    register: &Register,
+    graft: Option<usize>,
+) -> usize {
+    fn rec_add(
+        t: &mut PolytomicGeneTree,
+        existing: NodeID,
+        parent: usize,
+        phylo_node: SpeciesID,
+        register: &Register,
+    ) {
+        if register.species_tree[phylo_node].is_leaf() {
+            if phylo_node == t[existing].tag {
+                t.move_node(existing, parent);
+            } else {
+                t.add_node(&[], phylo_node, Some(parent));
+            }
+        } else {
+            let me = t.add_node(&[], phylo_node, Some(parent));
+            assert!(me != existing);
+            for child in register.species_tree.children(phylo_node).into_iter() {
+                if *child == t[existing].tag {
+                    t.move_node(existing, me);
+                } else {
+                    rec_add(t, existing, me, *child, register);
+                }
+            }
+        }
+    }
+
+    let mrca = register.species_tree.root();
+    let root = graft.unwrap_or_else(|| t.add_node(&[], mrca, None));
+
+    rec_add(t, existing, root, mrca, register);
+
+    root
 }
 
 pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<()> {
@@ -1829,7 +1925,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
     )?;
 
     info!("Pruning tree...");
-    prune_tree(&mut tree);
+    prune_tree(&mut tree, root);
     info!("Done.");
 
     for k in tree.nodes() {
@@ -1868,7 +1964,7 @@ pub fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Res
         let others = HashSet::from_iter(register.proteins.iter().cloned());
         let missings = others.difference(&mine).collect::<Vec<_>>();
         info!("{:?}", missings);
-        anyhow!("Genes mismatch");
+        return Err(anyhow!("genes mismatch"));
     }
 
     Ok(())
