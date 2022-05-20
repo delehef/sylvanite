@@ -39,7 +39,13 @@ enum Commands {
         #[clap(short, long)]
         bar: bool,
     },
-    Build {
+    BuildTrees {
+        #[clap(short, long, required = true)]
+        species_tree: String,
+        #[clap(short, long, required = true)]
+        syntenies: String,
+        #[clap(short, long, required = true)]
+        divergences: String,
         #[clap(required = true)]
         infiles: Vec<String>,
     },
@@ -80,9 +86,16 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Commands::Build { infiles } => {
+        Commands::BuildTrees {
+            species_tree,
+            syntenies,
+            divergences,
+            infiles,
+        } => {
+            let batch_name = "pipo";
             for f in infiles {
-                sylva::do_file(&f, &register);
+                let out_tree =
+                    sylva::do_file(&f, &batch_name, &register, &species_tree, &syntenies, &divergences)?;
             }
 
             Ok(())

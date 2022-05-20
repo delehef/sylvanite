@@ -1,4 +1,3 @@
-use crate::polytomic_tree;
 use crate::utils::*;
 use anyhow::*;
 use itertools::Itertools;
@@ -7,7 +6,6 @@ use newick::*;
 use ordered_float::OrderedFloat;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
 use std::fs::File;
 use std::hash::Hash;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
@@ -16,8 +14,6 @@ use std::time::Instant;
 const RELAXED_SYNTENY_THRESHOLD: OrderedFloat<f32> = OrderedFloat(0.15);
 const MIN_INFORMATIVE_SYNTENY: usize = 3;
 const CORE_THRESHOLD: usize = 20;
-const WINDOW: usize = 15;
-const DATA_ROOT: &str = "/home/franklin/work/duplications/data/";
 
 type SpeciesID = usize;
 type GeneID = usize;
@@ -51,7 +47,7 @@ fn sim_matrix(
     }
 }
 
-struct Register {
+struct Register<'a> {
     size: usize,
     landscape_size: Vec<usize>,
     core: Vec<GeneID>,
@@ -61,7 +57,9 @@ struct Register {
     all_species: HashSet<SpeciesID>,
     synteny: VecMatrix<f32>,
     divergence: VecMatrix<f32>,
-    species_tree: NewickTree,
+    species_tree: &'a NewickTree,
+    extended: Vec<GeneID>,
+    solos: Vec<GeneID>,
 }
 
 #[derive(Debug)]
@@ -71,7 +69,7 @@ struct Duplication {
     species: HashSet<SpeciesID>,
 }
 impl Duplication {
-    pub fn pretty(&self, register: &Register) {
+    pub fn pretty<'a>(&self, register: &'a Register) {
         println!(
             "  {:?}",
             view(&register.proteins, &self.content)
@@ -92,7 +90,7 @@ impl Duplication {
 
 type Duplications = Vec<Duplication>;
 
-impl Register {
+impl<'st> Register<'st> {
     pub fn species_name(&self, x: SpeciesID) -> String {
         if x > 0 {
             self.species_tree[x]
@@ -245,13 +243,15 @@ fn underscore2point(s: &str) -> String {
     let s = s.replace("_", ".");
     s[0..1].to_uppercase() + &s[1..]
 }
-fn make_register(
-    id: usize,
+fn make_register<'a>(
+    id: &str,
     tree: &NewickTree,
     book: &GeneBook,
-) -> Result<(Register, Vec<SpeciesID>, Vec<SpeciesID>)> {
-    let mut species_tree = newick::one_from_filename(format!("{}/SpeciesTree.nwk", DATA_ROOT))?;
-    species_tree.cache_leaves();
+    species_tree: &'a NewickTree,
+    syntenies: &str,
+    divergences: &str,
+) -> Result<Register<'a>> {
+    info!("Building register");
     let proteins = tree
         .leaves()
         .filter_map(|l| tree[l].data.name.as_ref())
@@ -267,12 +267,12 @@ fn make_register(
         .collect::<Result<Vec<_>>>()?;
 
     info!("Parsing synteny matrix");
-    let synteny_matrix = &format!("{}/dists/synteny/tree-{:0>5}.dist", DATA_ROOT, id);
+    let synteny_matrix = &format!("{}/{}.dist", syntenies, id);
     let synteny = parse_dist_matrix(&synteny_matrix, &proteins)
         .with_context(|| format!("while reading synteny matrix `{}`", synteny_matrix))?;
 
     info!("Parsing divergence matrix");
-    let divergence_matrix = &format!("{}/dists/divergence/tree-{}.dist", DATA_ROOT, id);
+    let divergence_matrix = &format!("{}/{}.dist", divergences, id);
     let divergence = parse_dist_matrix(&divergence_matrix, &proteins)
         .with_context(|| format!("failed to read sequence matrix `{}`", divergence_matrix))?;
     let species2id = species_tree
@@ -350,8 +350,10 @@ fn make_register(
         synteny,
         divergence,
         species_tree,
+        extended,
+        solos,
     };
-    Ok((register, extended, solos))
+    Ok(register)
 }
 
 fn mean(x: &[f32]) -> f32 {
@@ -668,13 +670,9 @@ fn inject_satellites(
 
 fn inject_solos(
     t: &mut PolytomicGeneTree,
-    solos_ids: &[NodeID],
     register: &Register,
-) -> Vec<NodeID> {
-    let mut solos_ids = solos_ids.to_vec();
-    let mut true_solos = vec![];
-
-    for &id in solos_ids.iter() {
+) {
+    for &id in register.solos.iter() {
         let log = ["ENSTMTP00000017759"].contains(&register.proteins[id].as_str());
 
         let mut candidate_clusters = t
@@ -726,16 +724,14 @@ fn inject_solos(
                 .mrca(view(&register.species, &t[parent].content))
                 .unwrap();
         } else {
-            println!("{} is missing a home", &register.proteins[id]);
-            true_solos.push(id);
+            debug!("{} is missing a home", &register.proteins[id]);
+            t.add_node(&[id], register.species[id], Some(1));
         }
     }
-
-    true_solos
 }
 
-fn inject_extended(t: &mut PolytomicGeneTree, extended: &mut [NodeID], register: &Register) {
-    let mut extended = extended.to_owned();
+fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
+    let mut extended = register.extended.to_owned();
 
     let mut local_synteny = register.synteny.clone();
     for i in extended.iter() {
@@ -1740,19 +1736,14 @@ fn reconcile_upstream(
     root
 }
 
-fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<PolytomicGeneTree> {
-    let logs_root = format!("logs/{}/", batch);
-    let out_root = format!("out/{}/", batch);
-
-    std::fs::create_dir_all(&logs_root)?;
-    std::fs::create_dir_all(&out_root)?;
-
-    let gene_tree = newick::one_from_string(tree_str)?;
+fn do_family(
+    gene_tree: NewickTree,
+    id: &str,
+    register: Register,
+    logs_root: &str,
+) -> Result<PolytomicGeneTree> {
     let nb_leaves = gene_tree.leaves().count();
     info!("===== Family {} -- {} proteins =====", id, nb_leaves);
-
-    info!("Building register");
-    let (register, mut extended, solos) = make_register(id, &gene_tree, &book)?;
 
     info!("Optimizing threshold");
     let tt = find_threshold(&register);
@@ -1767,7 +1758,7 @@ fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<
             Some(root),
         );
     }
-    File::create(&format!("{}/{}_vanilla.nwk", &out_root, id))?.write_all(
+    File::create(&format!("{}/{}_vanilla.nwk", &logs_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
             .as_bytes(),
@@ -1775,12 +1766,12 @@ fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<
 
     info!(
         "Injecting {} extended in {} clusters",
-        extended.len(),
+        register.extended.len(),
         tree[1].children.len()
     );
-    inject_extended(&mut tree, &mut extended, &register);
+    inject_extended(&mut tree, &register);
     let satellites = remove_solos_clusters(&mut tree);
-    File::create(&format!("{}/{}_withextended.nwk", &out_root, id))?.write_all(
+    File::create(&format!("{}/{}_withextended.nwk", &logs_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
             .as_bytes(),
@@ -1912,7 +1903,7 @@ fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<
     //     )
     // });
     info!("...to {}", tree[1].children.len());
-    File::create(&format!("{}/{}_merged.nwk", &out_root, id))?.write_all(
+    File::create(&format!("{}/{}_merged.nwk", &logs_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
             .as_bytes(),
@@ -1925,7 +1916,7 @@ fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<
     );
     let satellites = inject_satellites(&mut tree, &satellites, &register);
     info!("Done.");
-    File::create(&format!("{}/{}_withsatellites.nwk", &out_root, id))?.write_all(
+    File::create(&format!("{}/{}_withsatellites.nwk", &logs_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
             .as_bytes(),
@@ -1948,15 +1939,12 @@ fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<
 
     info!(
         "Injecting {} solos in {} clusters",
-        solos.len(),
+        register.solos.len(),
         tree[1].children.len()
     );
-    let true_solos = inject_solos(&mut tree, &solos, &register);
-    for id in true_solos {
-        tree.add_node(&[id], register.species[id], Some(root));
-    }
+    inject_solos(&mut tree, &register);
     info!("Done.");
-    File::create(&format!("{}/{}_clusters.nwk", &out_root, id))?.write_all(
+    File::create(&format!("{}/{}_clusters.nwk", &logs_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
             .as_bytes(),
@@ -1965,7 +1953,7 @@ fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<
     info!("Resolving duplications...");
     resolve_duplications(&mut tree, &register);
     info!("Done.");
-    File::create(&format!("{}/{}_prototree.nwk", &out_root, id))?.write_all(
+    File::create(&format!("{}/{}_prototree.nwk", &logs_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
             .as_bytes(),
@@ -1978,7 +1966,7 @@ fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<
 
     let root = make_final_tree(&mut tree, &register);
     info!("Done.");
-    File::create(&format!("{}/{}_reconciled.nwk", &out_root, id))?.write_all(
+    File::create(&format!("{}/{}_reconciled.nwk", &logs_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
             .as_bytes(),
@@ -1997,7 +1985,7 @@ fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<
         }
     }
 
-    File::create(&format!("{}/{}_synteny.nwk", &out_root, id))?.write_all(
+    File::create(&format!("{}/{}_synteny.nwk", &logs_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
             .as_bytes(),
@@ -2030,15 +2018,36 @@ fn do_family(tree_str: &str, id: usize, batch: &str, book: &GeneBook) -> Result<
     Ok(tree)
 }
 
-pub fn do_file(filename: &str, register: &GeneBook) -> Result<()> {
-    let lines =
-        std::fs::read_to_string("/users/ldog/delehell/duplications/data/SuperTrees.nhx").unwrap();
-    let lines = lines.split('\n').collect::<Vec<_>>();
+pub fn do_file(
+    filename: &str,
+    batch: &str,
+    book: &GeneBook,
+    speciestree_file: &str,
+    syntenies: &str,
+    divergences: &str,
+) -> Result<Vec<PolytomicGeneTree>> {
+    let trees =
+        newick::from_filename(filename).with_context(|| format!("while parsing {}", filename))?;
+    let mut species_tree = newick::one_from_filename(&speciestree_file)
+        .with_context(|| format!("can not open `{}`", speciestree_file))?;
+    species_tree.cache_leaves();
 
-    for i in 0..lines.len() {
-        let now = Instant::now();
-        let out_tree = do_family(&lines[i], i, "pipo3", &register)?;
-        info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
-    }
-    Ok(())
+    trees
+        .into_iter()
+        .enumerate()
+        .map(|(i, tree)| {
+            let now = Instant::now();
+
+            let id = &format!("tree-{}", i);
+
+            let logs_root = format!("logs/{}/", batch);
+            std::fs::create_dir_all(&logs_root)?;
+
+            let register = make_register(id, &tree, &book, &species_tree, syntenies, divergences)?;
+            let out_tree = do_family(tree, id, register, &logs_root)?;
+
+            info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
+            Ok(out_tree)
+        })
+        .collect()
 }
