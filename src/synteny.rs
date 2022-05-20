@@ -7,32 +7,8 @@ use log::*;
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::BufWriter;
-use std::io::Read;
 use std::path::*;
 use std::sync::Mutex;
-
-fn read_genefile(filename: &Path) -> Result<Vec<String>> {
-    let mut filecontent = String::new();
-    File::open(filename)
-        .with_context(|| format!("failed to read {}", filename.display()))?
-        .read_to_string(&mut &mut filecontent)?;
-    let filecontent = filecontent.trim();
-    if filecontent.starts_with("(") && filecontent.ends_with(";") {
-        let tree = newick::one_from_string(&filecontent)?;
-        tree.leaves()
-            .map(|l| {
-                tree[l]
-                    .data
-                    .name
-                    .as_ref()
-                    .map(|s| s.to_owned())
-                    .with_context(|| format!("nameless leaf found in {:?}", filename))
-            })
-            .collect::<Result<Vec<_>>>()
-    } else {
-        Ok(filecontent.split("\n").map(|s| s.to_owned()).collect())
-    }
-}
 
 pub fn process_file(
     filename: &str,
@@ -52,7 +28,11 @@ pub fn process_file(
             .unwrap(),
     );
 
-    let genes = read_genefile(std::path::Path::new(filename))?;
+    let gene_families = crate::utils::read_genefile(filename)?;
+    if gene_families.is_empty() || gene_families.len() > 1 {
+        bail!("{} should contain a single family", filename)
+    }
+    let genes = &gene_families[0];
 
     let n = genes.len();
     let m = Mutex::new(vec![0f32; n * (n - 1) / 2]);

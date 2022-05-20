@@ -51,6 +51,8 @@ enum Commands {
         divergences: String,
         #[clap(required = true)]
         infiles: Vec<String>,
+        #[clap(short, long)]
+        out: Option<String>,
     },
 }
 
@@ -84,7 +86,7 @@ fn main() -> Result<()> {
             for f in infiles.iter() {
                 info!("Processing {:?}", f);
                 let now = Instant::now();
-                let out = synteny::process_file(&f, &register, &outdir, bar)?;
+                let out = synteny::process_file(&f, &gene_book, &outdir, bar)?;
                 debug!(
                     "Done in {}s. Result written to {:?}",
                     now.elapsed().as_secs(),
@@ -98,11 +100,21 @@ fn main() -> Result<()> {
             syntenies,
             divergences,
             infiles,
+            out,
         } => {
             let batch_name = "pipo";
             for f in infiles {
-                let out_tree =
-                    sylva::do_file(&f, &batch_name, &register, &species_tree, &syntenies, &divergences)?;
+                let mut out_file = std::path::PathBuf::from(&f);
+                out_file.set_file_name(format!("sylvanite_{:?}", out_file.file_name()));
+                let tree = sylva::do_file(
+                    &f,
+                    &batch_name,
+                    &gene_book,
+                    &species_tree,
+                    &syntenies,
+                    &divergences,
+                )?;
+                std::fs::File::create(out_file)?.write_all(tree.as_bytes())?
             }
 
             Ok(())

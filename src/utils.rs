@@ -157,3 +157,34 @@ pub fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
     // 3. Flush the output
     Ok(out.flush()?)
 }
+
+pub fn read_genefile(filename: &str) -> Result<Vec<Vec<String>>> {
+    let mut filecontent = String::new();
+    File::open(filename)
+        .with_context(|| format!("failed to read {}", filename))?
+        .read_to_string(&mut &mut filecontent)?;
+    let filecontent = filecontent.trim();
+    if filecontent.starts_with("(") && filecontent.ends_with(";") {
+        let trees = newick::from_string(&filecontent)?;
+        trees
+            .into_iter()
+            .map(|tree| {
+                tree.leaves()
+                    .map(|l| {
+                        tree[l]
+                            .data
+                            .name
+                            .as_ref()
+                            .map(|s| s.to_owned())
+                            .with_context(|| format!("nameless leaf found in {:?}", filename))
+                    })
+                    .collect::<Result<Vec<_>>>()
+            })
+            .collect()
+    } else {
+        Ok(vec![filecontent
+            .split("\n")
+            .map(|s| s.to_owned())
+            .collect()])
+    }
+}
