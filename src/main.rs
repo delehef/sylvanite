@@ -73,7 +73,7 @@ fn main() -> Result<()> {
 
     let gene_book = if args.cache_db {
         GeneBook::cached(&args.database, args.window)
-    }  else {
+    } else {
         GeneBook::inline(&args.database, args.window)
     }?;
 
@@ -105,7 +105,14 @@ fn main() -> Result<()> {
             let batch_name = "pipo";
             for f in infiles {
                 let mut out_file = std::path::PathBuf::from(&f);
-                out_file.set_file_name(format!("sylvanite_{:?}", out_file.file_name()));
+                out_file.set_file_name(format!(
+                    "sylvanite_{}",
+                    out_file
+                        .file_name()
+                        .ok_or(anyhow!("invalid filename found"))?
+                        .to_str()
+                        .ok_or(anyhow!("invalid filename found"))?
+                ));
                 let tree = sylva::do_file(
                     &f,
                     &batch_name,

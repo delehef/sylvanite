@@ -8,8 +8,6 @@ use std::io::Read;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-const REQUEST: &str = "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes WHERE protein=?";
-
 pub enum GeneBook {
     Cached(HashMap<String, Gene>),
     Inline(Mutex<Connection>, usize),
@@ -99,7 +97,7 @@ impl GeneBook {
             GeneBook::Inline(conn_mutex, window) => {
                 let mut conn = conn_mutex.lock().expect("MUTEX POISONING");
                 let mut query = conn.prepare(
-                    "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes",
+                    "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes WHERE protein=?",
                 )?;
                 query
                     .query_row(&[g], |r| {

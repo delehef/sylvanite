@@ -257,7 +257,7 @@ fn make_register<'a>(
         .map(|p| {
             book.get(p)
                 .map(|p| p.gene.to_owned())
-                .with_context(|| format!("while reading {}", p))
+                .with_context(|| format!("while looking up {}", p))
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -291,7 +291,7 @@ fn make_register<'a>(
         .map(|p| {
             book.get(p)
                 .map(|x| x.landscape.len())
-                .with_context(|| format!("while reading {}", p))
+                .with_context(|| format!("while looking up {}", p))
         })
         .collect::<Result<Vec<_>>>()
         .map_err(|e| anyhow!(format!("Can not find `{}` in database", e)))?;
