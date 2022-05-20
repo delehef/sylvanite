@@ -1,6 +1,7 @@
 use anyhow::*;
 use clap::{Parser, Subcommand};
 use log::*;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use utils::*;
@@ -20,6 +21,8 @@ struct Cli {
     verbose: bool,
     #[clap(short, long)]
     database: String,
+    #[clap(long)]
+    cache_db: bool,
     #[clap(short, long, default_value_t = 15)]
     window: usize,
     #[clap(short, long, default_value_t = 0)]
@@ -40,7 +43,7 @@ enum Commands {
         bar: bool,
     },
     BuildTrees {
-        #[clap(short, long, required = true)]
+        #[clap(short = 'S', long, required = true)]
         species_tree: String,
         #[clap(short, long, required = true)]
         syntenies: String,
@@ -66,7 +69,11 @@ fn main() -> Result<()> {
         .unwrap();
     debug!("Using {} threads", rayon::current_num_threads());
 
-    let register = read_db(&args.database, args.window).unwrap();
+    let gene_book = if args.cache_db {
+        GeneBook::cached(&args.database, args.window)
+    }  else {
+        GeneBook::inline(&args.database, args.window)
+    }?;
 
     match args.command {
         Commands::Align {

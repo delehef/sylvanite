@@ -245,24 +245,19 @@ fn underscore2point(s: &str) -> String {
 }
 fn make_register<'a>(
     id: &str,
-    tree: &NewickTree,
+    proteins: &[String],
     book: &GeneBook,
     species_tree: &'a NewickTree,
     syntenies: &str,
     divergences: &str,
 ) -> Result<Register<'a>> {
     info!("Building register");
-    let proteins = tree
-        .leaves()
-        .filter_map(|l| tree[l].data.name.as_ref())
-        .map(|n| n.to_owned())
-        .collect::<Vec<_>>();
     let genes = proteins
         .iter()
         .map(|p| {
             book.get(p)
                 .map(|p| p.gene.to_owned())
-                .ok_or(anyhow!(format!("`{}` not found in database", p)))
+                .with_context(|| format!("while reading {}", p))
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -296,7 +291,7 @@ fn make_register<'a>(
         .map(|p| {
             book.get(p)
                 .map(|x| x.landscape.len())
-                .ok_or(anyhow!(p.to_owned()))
+                .with_context(|| format!("while reading {}", p))
         })
         .collect::<Result<Vec<_>>>()
         .map_err(|e| anyhow!(format!("Can not find `{}` in database", e)))?;
@@ -320,7 +315,7 @@ fn make_register<'a>(
     }
     let species = proteins
         .iter()
-        .map(|p| species2id[&underscore2point(&book[p].species)])
+        .map(|p| species2id[&underscore2point(&book.get(p).unwrap().species)])
         .collect::<Vec<SpeciesID>>();
     let all_species = HashSet::from_iter(species.iter().cloned());
 
@@ -343,7 +338,7 @@ fn make_register<'a>(
         size: proteins.len(),
         landscape_size: landscape_sizes,
         core,
-        proteins,
+        proteins: proteins.to_owned(),
         genes,
         species,
         all_species,
@@ -668,10 +663,7 @@ fn inject_satellites(
     true_solos
 }
 
-fn inject_solos(
-    t: &mut PolytomicGeneTree,
-    register: &Register,
-) {
+fn inject_solos(t: &mut PolytomicGeneTree, register: &Register) {
     for &id in register.solos.iter() {
         let log = ["ENSTMTP00000017759"].contains(&register.proteins[id].as_str());
 
@@ -1737,13 +1729,12 @@ fn reconcile_upstream(
 }
 
 fn do_family(
-    gene_tree: NewickTree,
+    family: &[String],
     id: &str,
-    register: Register,
+    register: &Register,
     logs_root: &str,
 ) -> Result<PolytomicGeneTree> {
-    let nb_leaves = gene_tree.leaves().count();
-    info!("===== Family {} -- {} proteins =====", id, nb_leaves);
+    info!("===== Family {} -- {} proteins =====", id, family.len());
 
     info!("Optimizing threshold");
     let tt = find_threshold(&register);
@@ -2025,29 +2016,31 @@ pub fn do_file(
     speciestree_file: &str,
     syntenies: &str,
     divergences: &str,
-) -> Result<Vec<PolytomicGeneTree>> {
-    let trees =
-        newick::from_filename(filename).with_context(|| format!("while parsing {}", filename))?;
+) -> Result<String> {
     let mut species_tree = newick::one_from_filename(&speciestree_file)
         .with_context(|| format!("can not open `{}`", speciestree_file))?;
     species_tree.cache_leaves();
 
-    trees
-        .into_iter()
-        .enumerate()
-        .map(|(i, tree)| {
-            let now = Instant::now();
+    let gene_families =
+        read_genefile(filename).with_context(|| format!("while parsing {}", filename))?;
+    if gene_families.is_empty() || gene_families.len() > 1 {
+        bail!("{} should contain a single family", filename)
+    }
+    let family = &gene_families[0];
 
-            let id = &format!("tree-{}", i);
+    let now = Instant::now();
 
-            let logs_root = format!("logs/{}/", batch);
-            std::fs::create_dir_all(&logs_root)?;
+    let id = &std::path::Path::new(filename)
+        .file_stem()
+        .with_context(|| "asdfasdf")?
+        .to_str()
+        .with_context(|| format!("`{}` is not a valid file name", filename))?;
+    let logs_root = format!("logs/{}/", batch);
+    std::fs::create_dir_all(&logs_root)?;
 
-            let register = make_register(id, &tree, &book, &species_tree, syntenies, divergences)?;
-            let out_tree = do_family(tree, id, register, &logs_root)?;
+    let register = make_register(id, &family, &book, &species_tree, syntenies, divergences)?;
+    let out_tree = do_family(family, id, &register, &logs_root)?;
 
-            info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
-            Ok(out_tree)
-        })
-        .collect()
+    info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
+    Ok(out_tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)))
 }
