@@ -52,7 +52,7 @@ enum Commands {
         #[clap(required = true)]
         infiles: Vec<String>,
         #[clap(short, long)]
-        out: Option<String>,
+        outdir: Option<String>,
     },
 }
 
@@ -100,28 +100,58 @@ fn main() -> Result<()> {
             syntenies,
             divergences,
             infiles,
-            out,
+            outdir,
         } => {
             let batch_name = "pipo";
-            for f in infiles {
-                let mut out_file = std::path::PathBuf::from(&f);
-                out_file.set_file_name(format!(
+
+            let todos = infiles
+                .into_iter()
+                .flat_map(|f| {
+                    if std::fs::metadata(&f).unwrap().is_dir() {
+                        std::fs::read_dir(&f)
+                            .unwrap()
+                            .map(|entry| entry.unwrap().path())
+                            .filter(|p| std::fs::metadata(p).unwrap().is_file())
+                            .map(|p| p.to_str().unwrap().to_owned())
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                    } else {
+                        vec![f].into_iter()
+                    }
+                })
+                .collect::<Vec<String>>();
+
+            for f in todos.iter() {
+                let mut input_filename = std::path::PathBuf::from(&f);
+                input_filename.set_file_name(format!(
                     "sylvanite_{}",
-                    out_file
+                    input_filename
                         .file_name()
                         .ok_or(anyhow!("invalid filename found"))?
                         .to_str()
                         .ok_or(anyhow!("invalid filename found"))?
                 ));
-                let tree = sylva::do_file(
-                    &f,
-                    &batch_name,
-                    &gene_book,
-                    &species_tree,
-                    &syntenies,
-                    &divergences,
-                )?;
-                std::fs::File::create(out_file)?.write_all(tree.as_bytes())?
+
+                let out_file = std::path::PathBuf::from(if let Some(ref outdir) = outdir {
+                    format!("{}/{}", outdir, input_filename.file_name().unwrap().to_str().unwrap())
+                } else {
+                    input_filename.to_str().unwrap().to_owned()
+                });
+
+                if out_file.exists() {
+                    println!("{} already exists; skipping", out_file.display());
+                } else {
+                    println!("Creating {}...", out_file.display());
+                    let tree = sylva::do_file(
+                        &f,
+                        &batch_name,
+                        &gene_book,
+                        &species_tree,
+                        &syntenies,
+                        &divergences,
+                    )?;
+                    std::fs::File::create(out_file)?.write_all(tree.as_bytes())?
+                }
             }
 
             Ok(())
