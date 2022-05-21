@@ -57,6 +57,8 @@ enum Commands {
         outdir: Option<String>,
         #[clap(long)]
         timings: Option<String>,
+        #[clap(long)]
+        no_overwrite: bool,
     },
 }
 
@@ -106,12 +108,13 @@ fn main() -> Result<()> {
             infiles,
             outdir,
             timings,
+            no_overwrite,
         } => {
             let batch_name = "pipo";
             let mut timings = if let Some(timings) = timings {
                 let mut timings = File::create(&timings)
                     .with_context(|| format!("while creating {}", &timings))?;
-                timings.write_all("file,time".as_bytes())?;
+                timings.write_all("file,size,time\n".as_bytes())?;
                 Some(timings)
             } else {
                 None
@@ -155,11 +158,9 @@ fn main() -> Result<()> {
                     input_filename.to_str().unwrap().to_owned()
                 });
 
-                if out_file.exists() {
-                    println!("{} already exists; skipping", out_file.display());
+                if out_file.exists() && no_overwrite {
+                    info!("{} already exists; skipping", out_file.display());
                 } else {
-                    println!("Creating {}...", out_file.display());
-                    let now = Instant::now();
                     let tree = sylva::do_file(
                         &f,
                         &batch_name,
@@ -167,18 +168,8 @@ fn main() -> Result<()> {
                         &species_tree,
                         &syntenies,
                         &divergences,
+                        &mut timings,
                     )?;
-                    info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
-                    if let Some(ref mut timings) = timings {
-                        timings.write_all(
-                            format!(
-                                "{:#?},{}",
-                                Path::new(f).file_name().unwrap(),
-                                now.elapsed().as_secs_f32()
-                            )
-                            .as_bytes(),
-                        )?;
-                    }
                     std::fs::File::create(out_file)?.write_all(tree.as_bytes())?
                 }
             }

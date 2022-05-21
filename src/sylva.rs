@@ -1996,6 +1996,7 @@ pub fn do_file(
     speciestree_file: &str,
     syntenies: &str,
     divergences: &str,
+    timings: &mut Option<File>,
 ) -> Result<String> {
     let mut species_tree = newick::one_from_filename(&speciestree_file)
         .with_context(|| format!("can not open `{}`", speciestree_file))?;
@@ -2016,8 +2017,15 @@ pub fn do_file(
     std::fs::create_dir_all(&logs_root)?;
 
     info!("===== Family {} -- {} proteins =====", id, family.len());
+    let now = Instant::now();
     let register = make_register(id, &family, &book, &species_tree, syntenies, divergences)?;
     let out_tree = do_family(family, id, &register, &logs_root)?;
+    info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
+    if let Some(ref mut timings) = timings {
+        timings.write_all(
+            format!("{},{},{}\n", id, family.len(), now.elapsed().as_secs_f32()).as_bytes(),
+        )?;
+    }
 
     Ok(out_tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)))
 }
