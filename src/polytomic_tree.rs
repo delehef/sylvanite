@@ -135,7 +135,7 @@ impl<T: Clone, S> PTree<T, S> {
     }
 
     fn rec_descendants(&self, i: NodeID, ax: &mut Vec<NodeID>) {
-        for j in &self.nodes[&i].children {
+        for j in &self[i].children {
             ax.push(*j);
             self.rec_descendants(*j, ax)
         }

@@ -1285,6 +1285,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
 
     let aa = todo.pop().unwrap();
     let new_root = reconcile_upstream(t, aa, register, None);
+    t.cache_descendants(new_root);
 
     while let Some(a) = todo.pop() {
         let candidate_parents = t
@@ -1352,25 +1353,6 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                 let elc = register.elc(missing_left) + register.elc(missing_right);
                 let synteny = register.synteny.masked(&leaves[&a], &leaves[b]).max();
                 let divergence = register.divergence.masked(&leaves[&a], &leaves[b]).min();
-                if log && leaves[b].len() == 79 {
-                    println!(
-                        "My species: {}",
-                        speciess[&a]
-                            .iter()
-                            .map(|g| register.species_name(*g))
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    );
-
-                    println!(
-                        "B species: {}",
-                        speciess[&b]
-                            .iter()
-                            .map(|g| register.species_name(*g))
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    );
-                }
 
                 (
                     b,
@@ -1476,6 +1458,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
             if t.descendant_leaves(parent).is_empty() {
                 t.move_node(child, t[parent].parent.unwrap());
                 t.delete_node(parent);
+                t.cache_descendants(t[child].parent.unwrap());
             } else {
                 if !t[parent].content.is_empty() {
                     let _content = t.add_node(
@@ -1525,7 +1508,6 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
         })
         .collect::<Vec<_>>();
     let mut root = new_root;
-    dbg!(&tops);
     while let Some(to_plug) = tops.pop() {
         if !tops.is_empty() {
             let node_alpha = t.add_node(&[], t[to_plug].tag, Some(root));
