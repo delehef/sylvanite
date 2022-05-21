@@ -1716,8 +1716,6 @@ fn do_family(
     register: &Register,
     logs_root: &str,
 ) -> Result<PolytomicGeneTree> {
-    info!("===== Family {} -- {} proteins =====", id, family.len());
-
     info!("Optimizing threshold");
     let tt = find_threshold(&register);
 
@@ -2009,9 +2007,6 @@ pub fn do_file(
         bail!("{} should contain a single family", filename)
     }
     let family = &gene_families[0];
-
-    let now = Instant::now();
-
     let id = &std::path::Path::new(filename)
         .file_stem()
         .with_context(|| "asdfasdf")?
@@ -2020,9 +2015,9 @@ pub fn do_file(
     let logs_root = format!("logs/{}/", batch);
     std::fs::create_dir_all(&logs_root)?;
 
+    info!("===== Family {} -- {} proteins =====", id, family.len());
     let register = make_register(id, &family, &book, &species_tree, syntenies, divergences)?;
     let out_tree = do_family(family, id, &register, &logs_root)?;
 
-    info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
     Ok(out_tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)))
 }

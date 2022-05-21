@@ -1,6 +1,8 @@
 use anyhow::*;
 use clap::{Parser, Subcommand};
 use log::*;
+use std::fs::File;
+use std::io::prelude::*;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -53,6 +55,8 @@ enum Commands {
         infiles: Vec<String>,
         #[clap(short, long)]
         outdir: Option<String>,
+        #[clap(long)]
+        timings: Option<String>,
     },
 }
 
@@ -101,8 +105,17 @@ fn main() -> Result<()> {
             divergences,
             infiles,
             outdir,
+            timings,
         } => {
             let batch_name = "pipo";
+            let mut timings = if let Some(timings) = timings {
+                let mut timings = File::create(&timings)
+                    .with_context(|| format!("while creating {}", &timings))?;
+                timings.write_all("file,time".as_bytes())?;
+                Some(timings)
+            } else {
+                None
+            };
 
             let todos = infiles
                 .into_iter()
@@ -133,7 +146,11 @@ fn main() -> Result<()> {
                 ));
 
                 let out_file = std::path::PathBuf::from(if let Some(ref outdir) = outdir {
-                    format!("{}/{}", outdir, input_filename.file_name().unwrap().to_str().unwrap())
+                    format!(
+                        "{}/{}",
+                        outdir,
+                        input_filename.file_name().unwrap().to_str().unwrap()
+                    )
                 } else {
                     input_filename.to_str().unwrap().to_owned()
                 });
@@ -142,6 +159,7 @@ fn main() -> Result<()> {
                     println!("{} already exists; skipping", out_file.display());
                 } else {
                     println!("Creating {}...", out_file.display());
+                    let now = Instant::now();
                     let tree = sylva::do_file(
                         &f,
                         &batch_name,
@@ -150,6 +168,17 @@ fn main() -> Result<()> {
                         &syntenies,
                         &divergences,
                     )?;
+                    info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
+                    if let Some(ref mut timings) = timings {
+                        timings.write_all(
+                            format!(
+                                "{:#?},{}",
+                                Path::new(f).file_name().unwrap(),
+                                now.elapsed().as_secs_f32()
+                            )
+                            .as_bytes(),
+                        )?;
+                    }
                     std::fs::File::create(out_file)?.write_all(tree.as_bytes())?
                 }
             }
