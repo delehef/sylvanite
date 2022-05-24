@@ -813,10 +813,11 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
                 .map(|c| c.1 .0)
                 .collect::<Vec<_>>();
 
+            let ELC_THRESHOLD = 6;
             if syntenies.iter().any(|&s| s <= -RELAXED_SYNTENY_THRESHOLD) {
                 // Synteny is negated
-                if elcs.iter().any(|&e| e < 3) {
-                    candidate_clusters.retain(|c| c.1 .0 <= 3);
+                if elcs.iter().any(|&e| e < ELC_THRESHOLD) {
+                    candidate_clusters.retain(|c| c.1 .0 < ELC_THRESHOLD);
                 }
                 if register.landscape_size[*id] > MIN_INFORMATIVE_SYNTENY {
                     if log {
