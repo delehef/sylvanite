@@ -2035,10 +2035,10 @@ pub fn do_file(
         .with_context(|| "asdfasdf")?
         .to_str()
         .with_context(|| format!("`{}` is not a valid file name", filename))?;
-    let logs_root = format!("logs/{}/", batch);
-    std::fs::create_dir_all(&logs_root)?;
 
     info!("===== Family {} -- {} proteins =====", id, family.len());
+    let logs_root = format!("logs/{}/{}/", batch, id);
+    std::fs::create_dir_all(&logs_root)?;
     let now = Instant::now();
     let register = make_register(id, &family, &book, &species_tree, syntenies, divergences)?;
     let out_tree = do_family(family, id, &register, &logs_root)?;
