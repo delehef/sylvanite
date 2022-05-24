@@ -1368,11 +1368,14 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
 
         let mut candidate_parents = candidate_parents
             .par_iter()
-            .filter(|b| !leaves[b].is_empty())
+            //.filter(|b| !leaves[b].is_empty())
             .map(|b| {
-                let missing_left = speciess[&a].difference(&speciess[&b]);
-                let missing_right = speciess[&b].difference(&speciess[&a]);
-                let elc = register.elc(missing_left) + register.elc(missing_right);
+                let mrca = register
+                    .species_tree
+                    .mrca(speciess[&a].iter().chain(speciess[&b].iter()))
+                    .unwrap();
+                let elc =
+                    register.elc_from(&speciess[&a], mrca) + register.elc_from(&speciess[&b], mrca);
                 let synteny = register.synteny.masked(&leaves[&a], &leaves[b]).max();
                 let divergence = register.divergence.masked(&leaves[&a], &leaves[b]).min();
 
