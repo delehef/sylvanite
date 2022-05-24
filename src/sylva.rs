@@ -146,6 +146,19 @@ impl<'st> Register<'st> {
                 .collect::<Vec<_>>()
                 .join(" ")
         ));
+        self.elc_from(&species, mrca)
+    }
+
+    pub fn elc_from<'a>(
+        &self,
+        species: impl IntoIterator<Item = &'a usize>,
+        mrca: SpeciesID,
+    ) -> i64 {
+        let species: Vec<SpeciesID> = species.into_iter().copied().collect();
+        if species.is_empty() {
+            return 0;
+        }
+
         let mut missings = self
             .span(mrca)
             .iter()
