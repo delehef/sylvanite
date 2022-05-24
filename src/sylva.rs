@@ -1304,7 +1304,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
         let candidate_parents = t
             .descendants(new_root)
             .into_iter()
-            .filter(|&b| b != new_root && b != a && t[b].tag == t[a].tag)
+            .filter(|&b| b != a && t[b].tag == t[a].tag)
             .filter(|&b| !t.cached_descendants(a).unwrap().contains(&b))
             .collect::<Vec<_>>();
 
@@ -1318,7 +1318,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
         let mut speciess = HashMap::new();
         speciess.insert(
             a,
-            view(&register.species, &leaves[&a])
+            view(&register.species, &t.descendant_leaves(a))
                 .copied()
                 .collect::<HashSet<SpeciesID>>(),
         );
