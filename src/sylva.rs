@@ -876,11 +876,19 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
                     parent,
                     register.elc(view(&register.species, &t[parent].content)),
                 );
-            } else {
-                new_solos.push(*id);
             }
         }
         extended = new_solos;
+    }
+    if !extended.is_empty() {
+        panic!(
+            "No cluster for {}",
+            extended
+                .iter()
+                .map(|g| register.proteins[*g].to_owned())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
     }
 }
 
