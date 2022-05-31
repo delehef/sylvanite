@@ -33,7 +33,7 @@ impl GeneBook {
     }
 
     pub fn cached(filename: &str, window: usize) -> Result<Self> {
-        info!("Parsing the database...");
+        info!("Caching the database...");
 
         let conn = Connection::open(filename)
             .with_context(|| format!("while connecting to {}", filename))?;

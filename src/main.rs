@@ -62,6 +62,24 @@ enum Commands {
     },
 }
 
+fn paths2files<S: AsRef<str>>(fs: &[S]) -> Vec<String> {
+    fs.into_iter()
+        .flat_map(|f| {
+            if std::fs::metadata(f.as_ref()).unwrap().is_dir() {
+                std::fs::read_dir(f.as_ref())
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path())
+                    .filter(|p| std::fs::metadata(p).unwrap().is_file())
+                    .map(|p| p.to_str().unwrap().to_owned())
+                    .collect::<Vec<_>>()
+                    .into_iter()
+            } else {
+                vec![f.as_ref().to_owned()].into_iter()
+            }
+        })
+        .collect::<Vec<String>>()
+}
+
 fn main() -> Result<()> {
     let args = Cli::parse();
     stderrlog::new()
@@ -89,7 +107,7 @@ fn main() -> Result<()> {
             outdir,
             bar,
         } => {
-            for f in infiles.iter() {
+            for f in paths2files(&infiles).into_iter() {
                 info!("Processing {:?}", f);
                 let now = Instant::now();
                 let out = synteny::process_file(&f, &gene_book, &outdir, bar)?;
@@ -120,24 +138,7 @@ fn main() -> Result<()> {
                 None
             };
 
-            let todos = infiles
-                .into_iter()
-                .flat_map(|f| {
-                    if std::fs::metadata(&f).unwrap().is_dir() {
-                        std::fs::read_dir(&f)
-                            .unwrap()
-                            .map(|entry| entry.unwrap().path())
-                            .filter(|p| std::fs::metadata(p).unwrap().is_file())
-                            .map(|p| p.to_str().unwrap().to_owned())
-                            .collect::<Vec<_>>()
-                            .into_iter()
-                    } else {
-                        vec![f].into_iter()
-                    }
-                })
-                .collect::<Vec<String>>();
-
-            for f in todos.iter() {
+            for f in paths2files(&infiles).into_iter() {
                 let mut input_filename = std::path::PathBuf::from(&f);
                 input_filename.set_file_name(format!(
                     "sylvanite_{}",
