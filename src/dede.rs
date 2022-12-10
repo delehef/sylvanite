@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Index, IndexMut};
 
 pub trait Matrix<T>: Index<(usize, usize), Output = T> {
@@ -13,6 +13,18 @@ pub struct VecMatrix<T> {
     m: Vec<T>,
     r: usize,
     c: usize,
+}
+impl<T: Debug> Debug for VecMatrix<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\n")?;
+        for i in 0..self.r {
+            for j in 0..self.c {
+                write!(f, "{:10?}", self[(i, j)])?;
+            }
+            write!(f, "\n")?;
+        }
+        Ok(())
+    }
 }
 
 impl<T> VecMatrix<T> {
