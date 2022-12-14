@@ -1012,6 +1012,9 @@ fn grow_duplication(
                 // dcss[(j, i)] = ds[j].species.len() as f32 / ds[i].species.intersection(&ds[j].species).count() as f32;
             }
         }
+        if log {
+            dbg!(&dcss);
+        }
 
         for (i, d) in ds.iter_mut().enumerate() {
             let putative_dcss = (0..dcss.ncols())
@@ -1034,9 +1037,9 @@ fn grow_duplication(
                     .count() as f32;
             let filling_threshold = if total_span.len() <= 4 { 0.5 } else { 0.5 };
 
-            if log {
-                // dbg!(i, filling_threshold, filling);
-            }
+            // if log {
+            //     dbg!(i, filling_threshold, filling, putative_dcss, best_dcs);
+            // }
             if (filling > filling_threshold)
                 && (!putatives[i].is_empty())
                 && best_dcs > OrderedFloat(0.)
@@ -1052,7 +1055,6 @@ fn grow_duplication(
             }
         }
         history.push(history_entry);
-        // if log { ds.iter().for_each(|d| d.pretty(register))}
     }
 
     'rewind: for i in (0..history.len()).rev() {
@@ -1363,12 +1365,14 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
             );
         }
 
-        let log = view(&register.proteins, &t.descendant_leaves(a))
-            .any(|s| ["ENSACCP00020023244"].contains(&s.as_str()));
+        let log = false; //view(&register.proteins, &t.descendant_leaves(a))
+                         //.any(|s| ["ENSGACP00000018817", "ENSTRUP00000037889"].contains(&s.as_str()));
+        if log {
+            println!("Injecting {}", register.species_name(t[a].tag));
+        }
 
         let mut candidate_parents = candidate_parents
             .par_iter()
-            //.filter(|b| !leaves[b].is_empty())
             .map(|b| {
                 let mrca = register
                     .species_tree
