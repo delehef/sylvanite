@@ -1586,19 +1586,19 @@ fn prune_tree(tree: &mut PolytomicGeneTree, root: usize) {
     }
     info!("...to {}", tree.nodes().count());
 
-    info!("Pruning empty leaf nodes -- from {}", tree.nodes().count());
+    info!("Pruning transitions -- from {}", tree.nodes().count());
     loop {
-        let todos = tree
+        let todo = tree
             .nodes()
             .copied()
             .filter(|&k| tree[k].children.is_empty() && tree[k].content.len() == 1 && k != root)
-            .collect::<Vec<_>>();
+            .next();
 
-        if let Some(k) = todos.get(0) {
-            let content = tree[*k].content[0];
-            let parent = tree[*k].parent.unwrap();
+        if let Some(k) = todo {
+            let content = tree[k].content[0];
+            let parent = tree[k].parent.unwrap();
             tree[parent].content.push(content);
-            tree.delete_node(*k);
+            tree.delete_node(k);
         } else {
             break;
         }
@@ -1606,16 +1606,16 @@ fn prune_tree(tree: &mut PolytomicGeneTree, root: usize) {
     info!("...to {}", tree.nodes().count());
 
     info!("Pruning scaffolding -- from {}", tree.nodes().count());
-    // Non used speciation nodes
     loop {
-        let todos = tree
+        let todo = tree
             .nodes()
             .copied()
             .filter(|&k| k != root && tree[k].children.len() == 1 && tree[k].content.is_empty())
-            .collect::<Vec<_>>();
-        if let Some(k) = todos.get(0) {
-            tree.move_node(tree[*k].children[0], tree[*k].parent.unwrap());
-            tree.delete_node(*k);
+            .next();
+
+        if let Some(k) = todo {
+            tree.move_node(tree[k].children[0], tree[k].parent.unwrap());
+            tree.delete_node(k);
         } else {
             break;
         }
