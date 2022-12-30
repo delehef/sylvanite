@@ -195,13 +195,13 @@ impl<T: Clone, S> PTree<T, S> {
     ) -> String {
         let mut r = String::new();
 
-        let ms = self.nodes[&i]
+        let leaves = self.nodes[&i]
             .content
             .iter()
             .map(|c| f_leaf(c))
             .collect::<Vec<String>>()
             .join(",");
-        let cs = self.nodes[&i]
+        let children = self.nodes[&i]
             .children
             .iter()
             .map(|&c| self.format_leaf_newick(c, f_leaf, f_tag))
@@ -210,11 +210,11 @@ impl<T: Clone, S> PTree<T, S> {
             .join(",");
 
         r.push_str("(");
-        r.push_str(&ms);
-        if !ms.is_empty() && !cs.is_empty() {
+        r.push_str(&leaves);
+        if !leaves.is_empty() && !children.is_empty() {
             r.push_str(",");
         }
-        r.push_str(&cs);
+        r.push_str(&children);
         r.push_str(")");
 
         if !self.nodes[&i].children.is_empty() || self.nodes[&i].content.len() > 1 {
@@ -223,6 +223,9 @@ impl<T: Clone, S> PTree<T, S> {
         r.push_str(&format!("[&&NHX:S={}]", f_tag(&self.nodes[&i].tag)));
 
         r
+    }
+    pub fn cardinal(&self, n: usize) -> usize {
+        self[n].children.len() + self[n].content.len()
     }
     pub fn to_newick(&self, f_leaf: &dyn Fn(&T) -> String, f_tag: &dyn Fn(&S) -> String) -> String {
         let mut r = String::new();
@@ -233,7 +236,7 @@ impl<T: Clone, S> PTree<T, S> {
             .filter(|k| self.nodes[&k].parent.is_none())
         {
             let mut k = *k;
-            while self[k].children.len() == 1 {
+            while self[k].children.len() == 1 && self[k].content.is_empty() {
                 k = self[k].children[0];
             }
             r.push_str(&self.format_leaf_newick(k, f_leaf, f_tag));
@@ -272,7 +275,7 @@ impl<T: std::clone::Clone + std::fmt::Debug, S: std::fmt::Debug> PTree<T, S> {
             self.rec_disp(*j, depth + 2);
         }
     }
-    pub fn disp(&self) {
-        self.rec_disp(1, 0);
+    pub fn disp(&self, root: usize) {
+        self.rec_disp(root, 0);
     }
 }
