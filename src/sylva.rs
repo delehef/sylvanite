@@ -1361,7 +1361,22 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                     .unwrap();
                 let elc =
                     register.elc_from(&speciess[&a], mrca) + register.elc_from(&speciess[&b], mrca);
-                let synteny = register.synteny.masked(&leaves[&a], &leaves[b]).max();
+
+                let synteny = leaves[&a]
+                    .iter()
+                    .map(|l| {
+                        if log {
+                            eprintln!(
+                                "{}/{} - {}",
+                                l,
+                                b,
+                                register.synteny.masked(&[*l], &leaves[b]).max()
+                            );
+                        }
+                        register.synteny.masked(&[*l], &leaves[b]).max()
+                    })
+                    .sum::<f32>()
+                    / leaves[&a].len() as f32;
                 let divergence = register.divergence.masked(&leaves[&a], &leaves[b]).min();
 
                 (
