@@ -1088,8 +1088,8 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
         .copied()
         .sorted_by_cached_key(|x| {
             (
+                -register.species_tree.node_topological_depth(t[*x].tag),
                 (t.descendant_leaves(*x).len() as i64),
-                // -register.species_tree.node_topological_depth(t[*x].tag),
             )
         }) // .pop(), so implicit reverse ordering
         .collect::<Vec<_>>();
