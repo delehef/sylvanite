@@ -27,26 +27,6 @@ fn round(x: f32, d: i8) -> f32 {
     (x * ten).round() / ten
 }
 
-fn sim_matrix(
-    t: &PolytomicGeneTree,
-    register: &Register,
-    ks: &[usize],
-    f: &dyn Fn(usize, usize) -> f32,
-) {
-    for (i, k) in ks.iter().enumerate() {
-        print!(
-            "{:2}/({:3}) {:20} |  ",
-            k,
-            t[*k].content.len(),
-            register.proteins[t[*k].content[0]]
-        );
-        for l in ks.iter().skip(i) {
-            print!("{:2.2}  ", f(*k, *l))
-        }
-        println!();
-    }
-}
-
 struct Register<'a> {
     size: usize,
     landscape_size: Vec<usize>,
@@ -1775,145 +1755,13 @@ fn do_family(
             .as_bytes(),
     )?;
 
-    let mut clusters = tree[root]
-        .children
-        .iter()
-        .copied()
-        .sorted_by_cached_key(|c| {
-            let topo_depth = register.species_tree.node_topological_depth(
-                register
-                    .species_tree
-                    .mrca(view(&register.species, &tree[*c].content))
-                    .unwrap(),
-            );
-            let size = tree[*c].content.len();
-            (-topo_depth, size)
-        })
-        .collect::<Vec<_>>();
-
-    assert!(tree[1]
-        .children
-        .iter()
-        .all(|k| !tree[*k].content.is_empty()));
-    info!("Packing clusters");
-    info!("From {}...", tree[1].children.len());
-    // sim_matrix(&tree, &register, &clusters, &|i, j| {
-    //     jaccard(
-    //         &view(&register.species, &tree[i].content)
-    //             .copied()
-    //             .collect::<HashSet<_>>(),
-    //         &view(&register.species, &tree[j].content)
-    //             .copied()
-    //             .collect::<HashSet<_>>(),
-    //     )
-    // });
-    struct Bin {
-        members: Vec<usize>,
-        species: HashSet<SpeciesID>,
-        content: Vec<GeneID>,
-    }
-    if let Some(c) = clusters.pop() {
-        let mut bins = vec![Bin {
-            members: vec![c],
-            species: HashSet::from_iter(view(&register.species, &tree[c].content).copied()),
-            content: tree[c].content.clone(),
-        }];
-
-        while let Some(k) = clusters.pop() {
-            let mut candidates = bins
-                .iter_mut()
-                .filter(|b| {
-                    jaccard(
-                        &b.species,
-                        &HashSet::from_iter(view(&register.species, &tree[k].content).copied()),
-                    ) <= 0.01
-                })
-                .sorted_by_cached_key(|b| {
-                    (
-                        OrderedFloat(-round(
-                            register.synteny.masked(&b.content, &tree[k].content).max(),
-                            2,
-                        )),
-                        OrderedFloat(round(
-                            register
-                                .divergence
-                                .masked(&b.content, &tree[k].content)
-                                .min(),
-                            2,
-                        )),
-                        -(b.species.len() as i64),
-                    )
-                });
-
-            if let Some(b) = candidates.next() {
-                b.members.push(k);
-                b.species.extend(view(&register.species, &tree[k].content));
-                b.content.extend_from_slice(&tree[k].content);
-            } else {
-                bins.push(Bin {
-                    members: vec![k],
-                    species: HashSet::from_iter(view(&register.species, &tree[k].content).copied()),
-                    content: tree[k].content.clone(),
-                })
-            }
-        }
-
-        for mut bin in bins.into_iter() {
-            let e = register.elc(&bin.species) as f32;
-            let ee = register.ellc(&bin.species);
-            let merged_compactness = bin.species.len() as f32
-                / (HashSet::<SpeciesID>::from_iter(
-                    register.species_tree.mrca(&bin.species).iter().copied(),
-                )
-                .intersection(&HashSet::from_iter(register.all_species.iter().copied()))
-                .count() as f32);
-            // let all_compactnesses = todo!();
-            let all_elcs = bin
-                .members
-                .iter()
-                .map(|k| {
-                    register.elc(&HashSet::<SpeciesID>::from_iter(
-                        view(&register.species, &tree[*k].content).copied(),
-                    ))
-                })
-                .collect::<Vec<_>>();
-
-            if e <= (1.1 * all_elcs.iter().sum::<i64>() as f32).ceil() {
-                if let Some(merger) = bin.members.pop() {
-                    while let Some(merged) = bin.members.pop() {
-                        tree.merge_nodes(merger, merged, &|a: &mut Vec<GeneID>, b: &[GeneID]| {
-                            a.extend_from_slice(b)
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    // sim_matrix(&tree, &register, &tree[1].children, &|i, j| {
-    //     jaccard(
-    //         &view(&register.species, &tree[i].content)
-    //             .copied()
-    //             .collect::<HashSet<_>>(),
-    //         &view(&register.species, &tree[j].content)
-    //             .copied()
-    //             .collect::<HashSet<_>>(),
-    //     )
-    // });
-    info!("...to {}", tree[1].children.len());
-    File::create(&format!("{}/{}_merged.nwk", &logs_root, id))?.write_all(
-        &tree
-            .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
-            .as_bytes(),
-    )?;
-
-    info!(
-        "Injecting {} satellites in {} clusters...",
-        satellites.len(),
-        tree[1].children.len()
-    );
-    let satellites = inject_satellites(&mut tree, &satellites, &register);
-    info!("Done.");
+    // info!(
+    //     "Injecting {} satellites in {} clusters...",
+    //     satellites.len(),
+    //     tree[1].children.len()
+    // );
+    // let satellites = inject_satellites(&mut tree, &satellites, &register);
+    // info!("Done.");
     File::create(&format!("{}/{}_withsatellites.nwk", &logs_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
