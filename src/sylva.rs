@@ -519,200 +519,6 @@ fn remove_solos_clusters(t: &mut PolytomicGeneTree) -> Vec<NodeID> {
     r
 }
 
-fn inject_satellites(
-    t: &mut PolytomicGeneTree,
-    satellites: &[NodeID],
-    register: &Register,
-) -> Vec<NodeID> {
-    let mut cached_elcs = t
-        .nodes()
-        .copied()
-        .filter(|c| !t[*c].content.is_empty())
-        .map(|c| (c, register.elc(view(&register.species, &t[c].content))))
-        .collect::<HashMap<_, _>>();
-    let mut true_solos = vec![];
-    let mut satellites = satellites.to_vec();
-
-    satellites.sort_by_cached_key(|s| {
-        cached_elcs
-            .iter()
-            .map(|(k, v)| {
-                (
-                    register.elc(
-                        view(&register.species, &t[*k].content)
-                            .chain([register.species[*s]].iter()),
-                    ) - v,
-                    -register
-                        .species_tree
-                        .node_topological_depth(register.species[*s]),
-                    &register.proteins[*s],
-                )
-            })
-            .min()
-            .unwrap()
-    });
-
-    for &id in satellites.iter() {
-        let log = register.proteins[id] == "ENSLLEP00000023490";
-        let mut candidate_clusters = t
-            .nodes()
-            .copied()
-            .filter(|c| !t[*c].content.is_empty())
-            .sorted()
-            .par_bridge()
-            .filter(|c| {
-                register
-                    .mrca_span(view(&register.species, &t[*c].content))
-                    .contains(&register.species[id])
-            })
-            .map(|c| {
-                let c_content = &t[c].content;
-                let synteny = register.synteny.masked(c_content, &[id]).max();
-                let sequence = register.divergence.masked(c_content, &[id]).min();
-                let delta_elc = register
-                    .elc(view(&register.species, c_content).chain([register.species[id]].iter()))
-                    - cached_elcs[&c];
-
-                (
-                    c,
-                    (delta_elc, OrderedFloat(sequence), OrderedFloat(synteny)),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let syntenies = candidate_clusters
-            .iter()
-            .map(|c| c.1 .2)
-            .collect::<Vec<_>>();
-        let divergences = candidate_clusters
-            .iter()
-            .map(|c| c.1 .1)
-            .collect::<Vec<_>>();
-
-        if syntenies.iter().any(|&s| s >= RELAXED_SYNTENY_THRESHOLD) {
-            candidate_clusters.sort_by_key(|c| {
-                (
-                    -c.1 .2, // Synteny
-                    c.1 .0,  // ELC
-                )
-            });
-        } else if divergences.iter().any(|d| *d <= OrderedFloat(0.5)) {
-            candidate_clusters.sort_by_key(|c| {
-                (
-                    c.1 .0.max(0), // ELC
-                    c.1 .1,        // Divergence
-                )
-            });
-        } else {
-            candidate_clusters.sort_by_key(|c| {
-                (
-                    c.1 .0,  // ELC
-                    c.1 .1,  // Divergence
-                    -c.1 .2, // Synteny
-                )
-            });
-        }
-
-        if log {
-            info!("SATELLITE {}", register.proteins[id]);
-            for cc in &candidate_clusters {
-                let c = cc.1;
-                info!(
-                    "    {:20} --> #{:3} -- SYN: {:.2} ΔELC: {:3} DV: {:2.2}",
-                    view(&register.proteins, &t[cc.0].content)
-                        .sorted()
-                        .next()
-                        .unwrap(),
-                    cc.0,
-                    c.2,
-                    c.0,
-                    c.1
-                );
-            }
-        }
-        if let Some(cluster) = candidate_clusters.first() {
-            let parent = cluster.0;
-            t[parent].content.push(id);
-            t[parent].tag = register
-                .species_tree
-                .mrca(view(&register.species, &t[parent].content))
-                .unwrap();
-            cached_elcs.insert(
-                parent,
-                register.elc(view(&register.species, &t[parent].content)),
-            );
-        } else {
-            info!("Creating a new cluster for {}", register.proteins[id]);
-            let new_cluster = t.add_node(&[id], register.species[id], Some(1));
-            cached_elcs.insert(
-                new_cluster,
-                register.elc(view(&register.species, &t[new_cluster].content)),
-            );
-        }
-    }
-
-    true_solos
-}
-
-fn inject_solos(t: &mut PolytomicGeneTree, register: &Register) {
-    for &id in register.solos.iter() {
-        let log = ["ENSTMTP00000017759"].contains(&register.proteins[id].as_str());
-
-        let mut candidate_clusters = t
-            .nodes()
-            .copied()
-            .par_bridge()
-            .filter(|c| !t[*c].content.is_empty())
-            .map(|c| {
-                let c_content = &t[c].content;
-                let delta_elc = register
-                    .elc(view(&register.species, c_content).chain([register.species[id]].iter()))
-                    - register.elc(view(&register.species, c_content));
-                let not_already_in =
-                    view(&register.species, c_content).any(|s| *s == register.species[id]) as i8;
-                let in_span = register
-                    .mrca_span(view(&register.species, c_content))
-                    .contains(&register.species[id]) as i8;
-                let sequence = register.divergence.masked(&[id], c_content).min();
-                (
-                    c,
-                    (delta_elc, in_span, OrderedFloat(sequence), not_already_in),
-                )
-            })
-            .collect::<Vec<_>>();
-        candidate_clusters.sort_by_key(|c| c.1);
-
-        if log {
-            info!("SOLO {}", register.proteins[id]);
-            for cc in &candidate_clusters {
-                let c = cc.1;
-                info!(
-                    "    {:20} -- ΔELC: {:3} IN:{} NARY: {} DV: {:2.2}",
-                    view(&register.proteins, &t[cc.0].content)
-                        .sorted()
-                        .next()
-                        .unwrap(),
-                    c.0,
-                    c.1,
-                    c.3,
-                    c.2
-                );
-            }
-        }
-        if let Some(cluster) = candidate_clusters.first() {
-            let parent = cluster.0;
-            t[parent].content.push(id);
-            t[parent].tag = register
-                .species_tree
-                .mrca(view(&register.species, &t[parent].content))
-                .unwrap();
-        } else {
-            debug!("{} is missing a home", &register.proteins[id]);
-            t.add_node(&[id], register.species[id], Some(1));
-        }
-    }
-}
-
 fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
     let mut extended = register.extended.to_owned();
 
@@ -1773,13 +1579,6 @@ fn do_family(
             .as_bytes(),
     )?;
 
-    // info!(
-    //     "Injecting {} satellites in {} clusters...",
-    //     satellites.len(),
-    //     tree[1].children.len()
-    // );
-    // let satellites = inject_satellites(&mut tree, &satellites, &register);
-    // info!("Done.");
     File::create(&format!("{}/{}_withsatellites.nwk", &logs_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
@@ -1801,13 +1600,6 @@ fn do_family(
     }
     info!("Done.");
 
-    info!(
-        "Injecting {} solos in {} clusters",
-        register.solos.len(),
-        tree[1].children.len()
-    );
-    inject_solos(&mut tree, &register);
-    info!("Done.");
     File::create(&format!("{}/{}_clusters.nwk", &logs_root, id))?.write_all(
         &tree
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
@@ -1822,6 +1614,14 @@ fn do_family(
             .to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t))
             .as_bytes(),
     )?;
+
+    for s in satellites.iter() {
+        tree.add_node(&[*s], register.species[*s], Some(root));
+    }
+
+    for s in register.solos.iter() {
+        tree.add_node(&[*s], register.species[*s], Some(root));
+    }
 
     info!(
         "Assembling final tree -- {} subtrees",
