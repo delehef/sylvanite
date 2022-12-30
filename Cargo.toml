@@ -20,5 +20,8 @@ stderrlog = "0.5"
 ordered-float = "2"
 itertools = "0.10"
 
-[profile.release]
-debug = true
+[package.metadata.release]
+tag-prefix = ""
+publish = false
+pre-release-hook = ["git-cliff", "-o", "CHANGELOG.md", "--tag", "{{version}}"]
+allow-branch = ["master"]
