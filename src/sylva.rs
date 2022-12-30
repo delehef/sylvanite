@@ -984,18 +984,21 @@ fn grow_duplication(
         let mut dcss = VecMatrix::<f32>::with_elem(ds.len(), ds.len(), 0.);
         for i in 0..ds.len() {
             for j in i..ds.len() {
-                dcss[(i, j)] = ds[i].species.len() as f32 / ds[j].species.len() as f32;
-                dcss[(j, i)] = ds[j].species.len() as f32 / ds[i].species.len() as f32;
-                // dcss[(i, j)] = ds[i].species.len() as f32 / ds[j].species.intersection(&ds[i].species).count() as f32;
-                // dcss[(j, i)] = ds[j].species.len() as f32 / ds[i].species.intersection(&ds[j].species).count() as f32;
+                dcss[(i, j)] = ds[i].species.intersection(&ds[i].species).count() as f32
+                    / ds[j].species.union(&ds[i].species).count() as f32;
+                dcss[(j, i)] = ds[j].species.intersection(&ds[j].species).count() as f32
+                    / ds[i].species.union(&ds[j].species).count() as f32;
             }
         }
         if log {
             dbg!(&dcss);
         }
 
+        let lengths = ds.iter().map(|d| d.species.len()).collect::<Vec<_>>();
         for (i, d) in ds.iter_mut().enumerate() {
             let putative_dcss = (0..dcss.ncols())
+                .filter(|j| *j != i)
+                .filter(|j| lengths[*j] > 1)
                 .map(|j| dcss[(i, j)])
                 .filter(|&x| 0.6 <= x && x <= 1.5)
                 .map(|x| OrderedFloat(x))
