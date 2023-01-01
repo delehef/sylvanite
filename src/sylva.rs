@@ -508,101 +508,87 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
         .map(|c| (c, register.elc(view(&register.species, &t[c].content))))
         .collect::<HashMap<_, _>>();
 
-    let mut touched = true;
-    while touched {
-        touched = false;
+    for id in extended.iter() {
+        let log = ["ENSNSUP00000004150"].contains(&register.proteins[*id].as_str());
 
-        for id in extended.iter() {
-            let log = ["ENSNSUP00000004150"].contains(&register.proteins[*id].as_str());
+        let mut candidate_clusters = t
+            .nodes()
+            .copied()
+            .par_bridge()
+            .filter(|c| !t[*c].content.is_empty())
+            .map(|c| {
+                let c_content = &t[c].content;
+                let delta_elc = register
+                    .elc(view(&register.species, c_content).chain([register.species[*id]].iter()))
+                    - cached_elcs[&c];
+                let divergence = round(register.divergence.masked(&[*id], c_content).min(), 2);
+                let synteny = -round(local_synteny.masked(&[*id], &core_content[&c]).max(), 2);
+                (c, (delta_elc, OrderedFloat(divergence), OrderedFloat(synteny)))
+            })
+            .collect::<Vec<_>>();
 
-            let mut candidate_clusters = t
-                .nodes()
-                .copied()
-                .par_bridge()
-                .filter(|c| !t[*c].content.is_empty())
-                .map(|c| {
-                    let c_content = &t[c].content;
-                    let delta_elc = register.elc(
-                        view(&register.species, c_content).chain([register.species[*id]].iter()),
-                    ) - cached_elcs[&c];
-                    let divergence = round(register.divergence.masked(&[*id], c_content).min(), 2);
-                    let synteny = -round(local_synteny.masked(&[*id], &core_content[&c]).max(), 2);
-                    (c, (delta_elc, OrderedFloat(divergence), OrderedFloat(synteny)))
-                })
-                .collect::<Vec<_>>();
+        let syntenies = candidate_clusters.iter().map(|c| c.1 .2).collect::<Vec<_>>();
+        let elcs = candidate_clusters.iter().map(|c| c.1 .0).collect::<Vec<_>>();
 
-            let syntenies = candidate_clusters.iter().map(|c| c.1 .2).collect::<Vec<_>>();
-            let elcs = candidate_clusters.iter().map(|c| c.1 .0).collect::<Vec<_>>();
-
-            const ELC_THRESHOLD: i64 = 6;
-            if syntenies.iter().any(|&s| s <= -RELAXED_SYNTENY_THRESHOLD) {
-                // Synteny is negated
-                if elcs.iter().any(|&e| e < ELC_THRESHOLD) {
-                    candidate_clusters.retain(|c| c.1 .0 < ELC_THRESHOLD);
+        const ELC_THRESHOLD: i64 = 6;
+        if syntenies.iter().any(|&s| s <= -RELAXED_SYNTENY_THRESHOLD) {
+            // Synteny is negated
+            if elcs.iter().any(|&e| e < ELC_THRESHOLD) {
+                candidate_clusters.retain(|c| c.1 .0 < ELC_THRESHOLD);
+            }
+            if register.landscape_size[*id] > MIN_INFORMATIVE_SYNTENY {
+                if log {
+                    info!("Sorting by synteny/ELC/div");
                 }
-                if register.landscape_size[*id] > MIN_INFORMATIVE_SYNTENY {
-                    if log {
-                        info!("Sorting by synteny/ELC/div");
-                    }
-                    candidate_clusters.sort_by_key(|c| (c.1 .2, c.1 .0, c.1 .1));
-                } else {
-                    if log {
-                        info!("Sorting by ELC/synteny/div");
-                    }
-                    candidate_clusters.sort_by_key(|c| (c.1 .0, c.1 .2, c.1 .1));
-                }
+                candidate_clusters.sort_by_key(|c| (c.1 .2, c.1 .0, c.1 .1));
             } else {
                 if log {
-                    info!("Sorting by ELC/div/synteny");
+                    info!("Sorting by ELC/synteny/div");
                 }
-                candidate_clusters.sort_by_key(|c| c.1);
+                candidate_clusters.sort_by_key(|c| (c.1 .0, c.1 .2, c.1 .1));
             }
-
+        } else {
             if log {
-                info!("EXTENDED {}", register.proteins[*id],);
-                for cc in &candidate_clusters {
-                    let c = cc.1;
-                    info!(
-                        "    {:20} --> SYN: {:.2} DV: {:2.2} ΔELC: {} CRT: {}",
-                        register.proteins[t[cc.0].content[0]],
-                        c.2,
-                        c.1,
-                        c.0,
-                        register.species_tree.node_topological_depth(
-                            register
-                                .species_tree
-                                .mrca(view(&register.species, &t[cc.0].content))
-                                .unwrap()
-                        ) - register.species_tree.node_topological_depth(
-                            register
-                                .species_tree
-                                .mrca(view(
-                                    &register.species,
-                                    t[cc.0].content.iter().chain([register.species[*id]].iter())
-                                ))
-                                .unwrap()
-                        )
-                    );
-                }
+                info!("Sorting by ELC/div/synteny");
             }
+            candidate_clusters.sort_by_key(|c| c.1);
+        }
 
-            if let Some(cluster) = candidate_clusters.first() {
-                let parent = cluster.0;
-                t[parent].content.push(*id);
-                t[parent].tag = register
-                    .species_tree
-                    .mrca(view(&register.species, &t[parent].content))
-                    .unwrap();
-                cached_elcs
-                    .insert(parent, register.elc(view(&register.species, &t[parent].content)));
+        if log {
+            info!("EXTENDED {}", register.proteins[*id],);
+            for cc in &candidate_clusters {
+                let c = cc.1;
+                info!(
+                    "    {:20} --> SYN: {:.2} DV: {:2.2} ΔELC: {} CRT: {}",
+                    register.proteins[t[cc.0].content[0]],
+                    c.2,
+                    c.1,
+                    c.0,
+                    register.species_tree.node_topological_depth(
+                        register
+                            .species_tree
+                            .mrca(view(&register.species, &t[cc.0].content))
+                            .unwrap()
+                    ) - register.species_tree.node_topological_depth(
+                        register
+                            .species_tree
+                            .mrca(view(
+                                &register.species,
+                                t[cc.0].content.iter().chain([register.species[*id]].iter())
+                            ))
+                            .unwrap()
+                    )
+                );
             }
         }
-    }
-    if !extended.is_empty() {
-        panic!(
-            "No cluster for {}",
-            extended.iter().map(|g| register.proteins[*g].to_owned()).collect::<Vec<_>>().join(" ")
-        );
+
+        if let Some(cluster) = candidate_clusters.first() {
+            let parent = cluster.0;
+            t[parent].content.push(*id);
+            t[parent].tag =
+                register.species_tree.mrca(view(&register.species, &t[parent].content)).unwrap();
+            cached_elcs.insert(parent, register.elc(view(&register.species, &t[parent].content)));
+        }
     }
 }
 
