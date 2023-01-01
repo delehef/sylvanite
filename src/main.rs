@@ -150,6 +150,10 @@ fn main() -> Result<()> {
                 ));
 
                 let out_file = std::path::PathBuf::from(if let Some(ref outdir) = outdir {
+                    if !std::path::Path::new(outdir).exists() {
+                        std::fs::create_dir(outdir)
+                            .with_context(|| anyhow!("while creating `{}`", outdir))?;
+                    }
                     format!(
                         "{}/{}",
                         outdir,

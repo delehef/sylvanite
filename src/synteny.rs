@@ -22,6 +22,9 @@ pub fn process_file(
     } else {
         PathBuf::from(Path::new(filename).parent().unwrap())
     };
+    if !outdir.exists() {
+        std::fs::create_dir(&outdir).with_context(|| anyhow!("while creating `{:?}`", outdir))?;
+    }
     let outfile = outdir.join(
         Path::new(filename)
             .with_extension("dist")
