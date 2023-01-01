@@ -2,11 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2023-01-01
+
+### Features
+
+- Introduce a partial-caching of the DB
+- Create output dirs if they do not exist
+
+### Miscellaneous Tasks
+
+- Clippy
+- Dead code pruning
+
 ## [1.0.1] - 2022-12-30
 
 ### Miscellaneous Tasks
 
 - Downgrade rusqlite for Guix packaging
+- Release sylvanite version 1.0.1
 
 ## [1.0.0] - 2022-12-30
 
