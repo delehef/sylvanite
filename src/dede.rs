@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Index, IndexMut};
 
@@ -16,12 +17,12 @@ pub struct VecMatrix<T> {
 }
 impl<T: Debug> Debug for VecMatrix<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\n")?;
+        writeln!(f)?;
         for i in 0..self.r {
             for j in 0..self.c {
                 write!(f, "{:10?}", self[(i, j)])?;
             }
-            write!(f, "\n")?;
+            writeln!(f)?;
         }
         Ok(())
     }
@@ -83,7 +84,7 @@ impl<T: Display> Display for VecMatrix<T> {
             for j in 0..self.c {
                 write!(f, "{:2.3} ", self.m[i * self.c + j])?;
             }
-            write!(f, "\n")?;
+            writeln!(f)?;
         }
         Ok(())
     }
@@ -134,15 +135,15 @@ pub struct MaskedMatrix<'a, T> {
 
 impl<'a, T> MaskedMatrix<'a, T> {
     pub fn is(&self) -> &[usize] {
-        &self.is
+        self.is
     }
 
     pub fn js(&self) -> &[usize] {
-        &self.js
+        self.js
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        MaskedMatrixIterator { m: &self, p: 0 }
+        MaskedMatrixIterator { m: self, p: 0 }
     }
 }
 
@@ -190,7 +191,7 @@ impl<T: Display> Display for MaskedMatrix<'_, T> {
             for j in 0..self.ncols() {
                 write!(f, "{:2.3} ", self.index((i, j)))?;
             }
-            write!(f, "\n")?;
+            writeln!(f)?;
         }
         Ok(())
     }

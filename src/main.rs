@@ -2,13 +2,10 @@ use anyhow::*;
 use clap::{Parser, Subcommand};
 use log::*;
 use std::fs::File;
-use std::io::prelude::*;
 use std::io::Write;
-use std::path::{Path, PathBuf};
 use std::time::Instant;
 use utils::*;
 
-use rayon::prelude::*;
 mod align;
 mod dede;
 mod polytomic_tree;
@@ -63,7 +60,7 @@ enum Commands {
 }
 
 fn paths2files<S: AsRef<str>>(fs: &[S]) -> Vec<String> {
-    fs.into_iter()
+    fs.iter()
         .flat_map(|f| {
             if std::fs::metadata(f.as_ref()).unwrap().is_dir() {
                 std::fs::read_dir(f.as_ref())
@@ -84,7 +81,7 @@ fn main() -> Result<()> {
     let args = Cli::parse();
     stderrlog::new()
         .timestamp(stderrlog::Timestamp::Off)
-        .verbosity(if args.verbose { 3 } else { 3 })
+        .verbosity(if args.verbose { 4 } else { 2 })
         .show_level(false)
         .init()
         .unwrap();

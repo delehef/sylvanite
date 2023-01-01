@@ -22,8 +22,8 @@ where
     let mut m = Vec::<i16>::with_capacity(w * h);
     unsafe { m.set_len(m.capacity()) }
     let mut max_score = 0;
-    for i in 0..w {
-        m[i] = 0;
+    for m_i in m.iter_mut().take(w) {
+        *m_i = 0;
     }
     for i in 0..h {
         m[i * w] = 0;
@@ -126,7 +126,9 @@ fn thread<T1, T2, V>(
                 for k in 0..old_paths {
                     if !paths[k].iter().any(|p| p.1.is_some() && p.1.unwrap() == m) {
                         let mut new_path = paths[k].clone();
-                        new_path.last_mut().map(|l| *l = (i, Some(m)));
+                        if let Some(l) = new_path.last_mut() {
+                            *l = (i, Some(m));
+                        }
                         paths.push(new_path);
                     }
                 }
@@ -150,7 +152,9 @@ where
 
     for g in s.iter().skip(1) {
         if r.last().unwrap() == g {
-            w.last_mut().map(|x| *x += 1);
+            if let Some(x) = w.last_mut() {
+                *x += 1
+            }
         } else {
             r.push(*g);
             w.push(1);

@@ -1,9 +1,7 @@
 use crate::align;
 use crate::utils::*;
-use crate::Commands;
 use anyhow::*;
 use indicatif::ProgressBar;
-use log::*;
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::BufWriter;
@@ -25,12 +23,7 @@ pub fn process_file(
     if !outdir.exists() {
         std::fs::create_dir(&outdir).with_context(|| anyhow!("while creating `{:?}`", outdir))?;
     }
-    let outfile = outdir.join(
-        Path::new(filename)
-            .with_extension("dist")
-            .file_name()
-            .unwrap(),
-    );
+    let outfile = outdir.join(Path::new(filename).with_extension("dist").file_name().unwrap());
 
     let gene_families = crate::utils::read_genefile(filename)?;
     if gene_families.is_empty() || gene_families.len() > 1 {
@@ -47,14 +40,12 @@ pub fn process_file(
         None
     };
     for (i, g1) in ids.iter().enumerate() {
-        bar.as_ref().map(|b| b.inc(1));
+        if let Some(b) = bar.as_ref() {
+            b.inc(1)
+        }
         ids[0..i].par_iter().enumerate().try_for_each(|(j, g2)| {
-            let gg1 = book
-                .get(g1)
-                .with_context(|| format!("`{}` not found in database", g1))?;
-            let gg2 = book
-                .get(g2)
-                .with_context(|| format!("`{}` not found in database", g2))?;
+            let gg1 = book.get(g1).with_context(|| format!("`{}` not found in database", g1))?;
+            let gg2 = book.get(g2).with_context(|| format!("`{}` not found in database", g2))?;
 
             let score =
                 align::score_landscape(&gg1.landscape, &gg2.landscape, &|x, y| x.max(y) as f32);
@@ -66,11 +57,13 @@ pub fn process_file(
             Ok(())
         })?;
     }
-    bar.map(|b| b.finish_and_clear());
+    if let Some(b) = bar {
+        b.finish_and_clear()
+    }
 
     write_dist_matrix(
         &m.into_inner().expect("BROKEN MUTEX"),
-        &ids,
+        ids,
         BufWriter::with_capacity(30_000_000, Box::new(File::create(&outfile)?)),
     )?;
     Ok(outfile)

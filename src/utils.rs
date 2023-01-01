@@ -6,8 +6,9 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::io::Read;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
+#[allow(dead_code)]
 pub enum GeneBook {
     InMemory(HashMap<String, Gene>),
     Cached(HashMap<String, Gene>),
@@ -39,7 +40,7 @@ impl GeneBook {
         window: usize,
     ) -> Result<HashMap<String, Gene>> {
         let genes = query
-            .query_map([], |r| {
+            .query_map(params, |r| {
                 std::result::Result::Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
@@ -109,6 +110,7 @@ impl GeneBook {
         Ok(GeneBook::Cached(r))
     }
 
+    #[allow(dead_code)]
     pub fn inline(filename: &str, window: usize) -> Result<Self> {
         let conn = Connection::open(filename)
             .with_context(|| format!("while connecting to {}", filename))?;
@@ -121,7 +123,7 @@ impl GeneBook {
                 book.get(g).cloned().ok_or_else(|| anyhow!("key not found"))
             }
             GeneBook::Inline(conn_mutex, window) => {
-                let mut conn = conn_mutex.lock().expect("MUTEX POISONING");
+                let conn = conn_mutex.lock().expect("MUTEX POISONING");
                 let mut query = conn.prepare(
                     "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes WHERE protein=?",
                 )?;
@@ -139,13 +141,13 @@ impl GeneBook {
                         right_landscape.truncate(*window);
 
                         rusqlite::Result::Ok(Gene {
-                            gene: gene,
-                            species: species,
+                            gene,
+                            species,
                             landscape: left_landscape
-                            .into_iter()
-                            .chain([r.get::<usize, _>(4)?].into_iter())
-                            .chain(right_landscape.into_iter())
-                            .collect(),
+                                .into_iter()
+                                .chain([r.get::<usize, _>(4)?].into_iter())
+                                .chain(right_landscape.into_iter())
+                                .collect(),
                         })
                     })
                     .with_context(|| "while accessing DB")
@@ -186,9 +188,9 @@ pub fn read_genefile(filename: &str) -> Result<Vec<Vec<String>>> {
     let mut filecontent = String::new();
     File::open(filename)
         .with_context(|| format!("failed to read {}", filename))?
-        .read_to_string(&mut &mut filecontent)?;
+        .read_to_string(&mut filecontent)?;
     let filecontent = filecontent.trim();
-    if filecontent.starts_with("(") && filecontent.ends_with(";") {
+    if filecontent.starts_with('(') && filecontent.ends_with(';') {
         let trees = newick::from_string(&filecontent)?;
         trees
             .into_iter()
@@ -207,7 +209,7 @@ pub fn read_genefile(filename: &str) -> Result<Vec<Vec<String>>> {
             .collect()
     } else {
         Ok(vec![filecontent
-            .split("\n")
+            .split('\n')
             .map(|s| s.to_owned())
             .collect()])
     }

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::collections::HashMap;
 
 pub type NodeID = usize;
@@ -100,12 +101,7 @@ impl<T: Clone, S> PTree<T, S> {
         ns.iter().for_each(|&n| self.delete_node(n));
     }
 
-    pub fn merge_nodes(
-        &mut self,
-        merger: NodeID,
-        merged: NodeID,
-        f: &dyn Fn(&mut Vec<T>, &[T]) -> (),
-    ) {
+    pub fn merge_nodes(&mut self, merger: NodeID, merged: NodeID, f: &dyn Fn(&mut Vec<T>, &[T])) {
         assert!(self.nodes.contains_key(&merger));
         assert!(self.nodes.contains_key(&merged));
 
@@ -124,7 +120,7 @@ impl<T: Clone, S> PTree<T, S> {
         let merged_content = &self.nodes[&merged].content.clone();
         f(
             &mut self.nodes.get_mut(&merger).unwrap().content,
-            &merged_content,
+            merged_content,
         );
         self.delete_node(merged);
     }
@@ -209,13 +205,13 @@ impl<T: Clone, S> PTree<T, S> {
             .collect::<Vec<String>>()
             .join(",");
 
-        r.push_str("(");
+        r.push('(');
         r.push_str(&leaves);
         if !leaves.is_empty() && !children.is_empty() {
-            r.push_str(",");
+            r.push(',');
         }
         r.push_str(&children);
-        r.push_str(")");
+        r.push(')');
 
         if !self.nodes[&i].children.is_empty() || self.nodes[&i].content.len() > 1 {
             r.push_str(&format!("{}-{}", f_tag(&self.nodes[&i].tag), i));
@@ -230,11 +226,7 @@ impl<T: Clone, S> PTree<T, S> {
     pub fn to_newick(&self, f_leaf: &dyn Fn(&T) -> String, f_tag: &dyn Fn(&S) -> String) -> String {
         let mut r = String::new();
 
-        for k in self
-            .nodes
-            .keys()
-            .filter(|k| self.nodes[&k].parent.is_none())
-        {
+        for k in self.nodes.keys().filter(|k| self.nodes[k].parent.is_none()) {
             let mut k = *k;
             while self[k].children.len() == 1 && self[k].content.is_empty() {
                 k = self[k].children[0];
