@@ -9,6 +9,7 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 pub enum GeneBook {
+    InMemory(HashMap<String, Gene>),
     Cached(HashMap<String, Gene>),
     Inline(Mutex<Connection>, usize),
 }
@@ -32,14 +33,11 @@ impl GeneBook {
         }
     }
 
-    pub fn cached(filename: &str, window: usize) -> Result<Self> {
-        info!("Caching the database...");
-
-        let conn = Connection::open(filename)
-            .with_context(|| format!("while connecting to {}", filename))?;
-        let mut query = conn.prepare(
-        "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes",
-    )?;
+    fn get_rows<P: rusqlite::Params>(
+        mut query: rusqlite::Statement,
+        params: P,
+        window: usize,
+    ) -> Result<HashMap<String, Gene>> {
         let genes = query
             .query_map([], |r| {
                 std::result::Result::Ok((
@@ -53,7 +51,7 @@ impl GeneBook {
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
-        let r = genes
+        Ok(genes
             .into_iter()
             .map(|g| {
                 let mut left_landscape = Self::parse_landscape(&g.2);
@@ -77,7 +75,36 @@ impl GeneBook {
                     },
                 )
             })
-            .collect();
+            .collect())
+    }
+
+    pub fn in_memory(filename: &str, window: usize) -> Result<Self> {
+        info!("Caching the database...");
+
+        let conn = Connection::open(filename)
+            .with_context(|| format!("while connecting to {}", filename))?;
+        let query = conn.prepare(
+            "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes",
+        )?;
+        let r = Self::get_rows(query, [], window)?;
+        info!("Done.");
+        Ok(GeneBook::InMemory(r))
+    }
+
+    pub fn cached<S: AsRef<str>>(filename: &str, window: usize, ids: &[S]) -> Result<Self> {
+        info!("Caching the database...");
+
+        let conn = Connection::open(filename)
+            .with_context(|| format!("while connecting to {}", filename))?;
+        let query = conn.prepare(&format!(
+            "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes WHERE protein IN ({})",
+            std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(", ")
+        ))?;
+        let r = Self::get_rows(
+            query,
+            rusqlite::params_from_iter(ids.iter().map(|s| s.as_ref())),
+            window,
+        )?;
         info!("Done.");
         Ok(GeneBook::Cached(r))
     }
@@ -90,10 +117,9 @@ impl GeneBook {
 
     pub fn get(&self, g: &str) -> Result<Gene> {
         match self {
-            GeneBook::Cached(book) => book
-                .get(g)
-                .map(|g| g.clone())
-                .ok_or(anyhow!("key not found")),
+            GeneBook::InMemory(book) | GeneBook::Cached(book) => {
+                book.get(g).cloned().ok_or_else(|| anyhow!("key not found"))
+            }
             GeneBook::Inline(conn_mutex, window) => {
                 let mut conn = conn_mutex.lock().expect("MUTEX POISONING");
                 let mut query = conn.prepare(

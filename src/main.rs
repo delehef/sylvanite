@@ -95,11 +95,11 @@ fn main() -> Result<()> {
         .unwrap();
     debug!("Using {} threads", rayon::current_num_threads());
 
-    let gene_book = if args.cache_db {
-        GeneBook::cached(&args.database, args.window)
+    let register = if args.cache_db {
+        Some(GeneBook::in_memory(&args.database, args.window)?)
     } else {
-        GeneBook::inline(&args.database, args.window)
-    }?;
+        None
+    };
 
     match args.command {
         Commands::Align {
@@ -110,7 +110,7 @@ fn main() -> Result<()> {
             for f in paths2files(&infiles).into_iter() {
                 info!("Processing {:?}", f);
                 let now = Instant::now();
-                let out = synteny::process_file(&f, &gene_book, &outdir, bar)?;
+                let out = synteny::process_file(&f, &args.database, args.window, &outdir, bar)?;
                 debug!(
                     "Done in {}s. Result written to {:?}",
                     now.elapsed().as_secs(),
@@ -144,9 +144,9 @@ fn main() -> Result<()> {
                     "sylvanite_{}",
                     input_filename
                         .file_name()
-                        .ok_or(anyhow!("invalid filename found"))?
+                        .ok_or_else(|| anyhow!("invalid filename found"))?
                         .to_str()
-                        .ok_or(anyhow!("invalid filename found"))?
+                        .ok_or_else(|| anyhow!("invalid filename found"))?
                 ));
 
                 let out_file = std::path::PathBuf::from(if let Some(ref outdir) = outdir {
@@ -164,9 +164,11 @@ fn main() -> Result<()> {
                 } else {
                     let tree = sylva::do_file(
                         &f,
-                        &batch_name,
-                        &gene_book,
+                        batch_name,
+                        register.as_ref(),
                         &species_tree,
+                        &args.database,
+                        args.window,
                         &syntenies,
                         &divergences,
                         &mut timings,

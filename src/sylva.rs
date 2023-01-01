@@ -1685,8 +1685,10 @@ fn do_family(
 pub fn do_file(
     filename: &str,
     batch: &str,
-    book: &GeneBook,
+    gene_book: Option<&GeneBook>,
     speciestree_file: &str,
+    db_file: &str,
+    window: usize,
     syntenies: &str,
     divergences: &str,
     timings: &mut Option<File>,
@@ -1711,8 +1713,19 @@ pub fn do_file(
     let logs_root = format!("logs/{}/{}/", batch, id);
     std::fs::create_dir_all(&logs_root)?;
     let now = Instant::now();
-    let register = make_register(id, &family, &book, &species_tree, syntenies, divergences)?;
-    let out_tree = do_family(family, id, &register, &logs_root)?;
+    let register = if let Some(book) = gene_book {
+        make_register(id, &family, book, &species_tree, syntenies, divergences)
+    } else {
+        make_register(
+            id,
+            &family,
+            &GeneBook::cached(db_file, window, &family)?,
+            &species_tree,
+            syntenies,
+            divergences,
+        )
+    }?;
+    let out_tree = do_family(id, &register, &logs_root)?;
     info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
     if let Some(ref mut timings) = timings {
         timings.write_all(

@@ -12,7 +12,8 @@ use std::sync::Mutex;
 
 pub fn process_file(
     filename: &str,
-    register: &GeneBook,
+    db_file: &str,
+    window: usize,
     outdir: &Option<String>,
     do_bar: bool,
 ) -> Result<PathBuf> {
@@ -32,22 +33,23 @@ pub fn process_file(
     if gene_families.is_empty() || gene_families.len() > 1 {
         bail!("{} should contain a single family", filename)
     }
-    let genes = &gene_families[0];
+    let ids = &gene_families[0];
+    let book = GeneBook::cached(db_file, window, ids)?;
 
-    let n = genes.len();
+    let n = ids.len();
     let m = Mutex::new(vec![0f32; n * (n - 1) / 2]);
     let bar = if do_bar && n > 5000 && atty::is(atty::Stream::Stdout) {
-        Some(ProgressBar::new(genes.len() as u64))
+        Some(ProgressBar::new(ids.len() as u64))
     } else {
         None
     };
-    for (i, g1) in genes.iter().enumerate() {
+    for (i, g1) in ids.iter().enumerate() {
         bar.as_ref().map(|b| b.inc(1));
-        genes[0..i].par_iter().enumerate().try_for_each(|(j, g2)| {
-            let gg1 = register
+        ids[0..i].par_iter().enumerate().try_for_each(|(j, g2)| {
+            let gg1 = book
                 .get(g1)
                 .with_context(|| format!("`{}` not found in database", g1))?;
-            let gg2 = register
+            let gg2 = book
                 .get(g2)
                 .with_context(|| format!("`{}` not found in database", g2))?;
 
@@ -65,7 +67,7 @@ pub fn process_file(
 
     write_dist_matrix(
         &m.into_inner().expect("BROKEN MUTEX"),
-        &genes,
+        &ids,
         BufWriter::with_capacity(30_000_000, Box::new(File::create(&outfile)?)),
     )?;
     Ok(outfile)
