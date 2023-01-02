@@ -86,33 +86,19 @@ fn main() -> Result<()> {
         .init()
         .unwrap();
 
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(args.threads)
-        .build_global()
-        .unwrap();
+    rayon::ThreadPoolBuilder::new().num_threads(args.threads).build_global().unwrap();
     debug!("Using {} threads", rayon::current_num_threads());
 
-    let register = if args.cache_db {
-        Some(GeneBook::in_memory(&args.database, args.window)?)
-    } else {
-        None
-    };
+    let register =
+        if args.cache_db { Some(GeneBook::in_memory(&args.database, args.window)?) } else { None };
 
     match args.command {
-        Commands::Align {
-            infiles,
-            outdir,
-            bar,
-        } => {
+        Commands::Align { infiles, outdir, bar } => {
             for f in paths2files(&infiles).into_iter() {
                 info!("Processing {:?}", f);
                 let now = Instant::now();
                 let out = synteny::process_file(&f, &args.database, args.window, &outdir, bar)?;
-                debug!(
-                    "Done in {}s. Result written to {:?}",
-                    now.elapsed().as_secs(),
-                    out
-                );
+                debug!("Done in {}s. Result written to {:?}", now.elapsed().as_secs(), out);
             }
             Ok(())
         }
@@ -137,14 +123,14 @@ fn main() -> Result<()> {
 
             for f in paths2files(&infiles).into_iter() {
                 let mut input_filename = std::path::PathBuf::from(&f);
-                input_filename.set_file_name(format!(
-                    "sylvanite_{}",
+                input_filename.set_file_name(
                     input_filename
+                        .with_extension("nhx")
                         .file_name()
-                        .ok_or_else(|| anyhow!("invalid filename found"))?
+                        .with_context(|| anyhow!("invalid filename found"))?
                         .to_str()
-                        .ok_or_else(|| anyhow!("invalid filename found"))?
-                ));
+                        .with_context(|| anyhow!("invalid filename found"))?,
+                );
 
                 let out_file = std::path::PathBuf::from(if let Some(ref outdir) = outdir {
                     if !std::path::Path::new(outdir).exists() {
@@ -154,7 +140,11 @@ fn main() -> Result<()> {
                     format!(
                         "{}/{}",
                         outdir,
-                        input_filename.file_name().unwrap().to_str().unwrap()
+                        input_filename
+                            .file_name()
+                            .with_context(|| anyhow!("invalid filename found"))?
+                            .to_str()
+                            .with_context(|| anyhow!("invalid filename found"))?,
                     )
                 } else {
                     input_filename.to_str().unwrap().to_owned()
