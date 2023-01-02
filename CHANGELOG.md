@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2023-01-02
+
+### Bug Fixes
+
+- Use correct names for trees
+
 ## [1.1.0] - 2023-01-01
 
 ### Features
@@ -13,6 +19,7 @@ All notable changes to this project will be documented in this file.
 
 - Clippy
 - Dead code pruning
+- Release sylvanite version 1.1.0
 
 ## [1.0.1] - 2022-12-30
 
