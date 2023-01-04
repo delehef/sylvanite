@@ -2,11 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] - 2023-01-04
+
+### Bug Fixes
+
+- Out of bounds
+
+### Miscellaneous Tasks
+
+- Gitignore++
+
 ## [1.2.0] - 2023-01-02
 
 ### Bug Fixes
 
 - Use correct names for trees
+
+### Miscellaneous Tasks
+
+- Release sylvanite version 1.2.0
 
 ## [1.1.0] - 2023-01-01
 
