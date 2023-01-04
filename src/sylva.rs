@@ -559,25 +559,8 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
             for cc in &candidate_clusters {
                 let c = cc.1;
                 info!(
-                    "    {:20} --> SYN: {:.2} DV: {:2.2} ΔELC: {} CRT: {}",
-                    register.proteins[t[cc.0].content[0]],
-                    c.2,
-                    c.1,
-                    c.0,
-                    register.species_tree.node_topological_depth(
-                        register
-                            .species_tree
-                            .mrca(view(&register.species, &t[cc.0].content))
-                            .unwrap()
-                    ) - register.species_tree.node_topological_depth(
-                        register
-                            .species_tree
-                            .mrca(view(
-                                &register.species,
-                                t[cc.0].content.iter().chain([register.species[*id]].iter())
-                            ))
-                            .unwrap()
-                    )
+                    "    {:20} --> SYN: {:.2} DV: {:2.2} ΔELC: {}",
+                    register.proteins[t[cc.0].content[0]], c.2, c.1, c.0,
                 );
             }
         }
