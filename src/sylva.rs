@@ -212,10 +212,6 @@ fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatr
     Ok(r)
 }
 
-fn underscore2point(s: &str) -> String {
-    let s = s.replace('_', ".");
-    s[0..1].to_uppercase() + &s[1..]
-}
 fn make_register<'a>(
     id: &str,
     proteins: &[String],
@@ -272,7 +268,7 @@ fn make_register<'a>(
     }
     let species = proteins
         .iter()
-        .map(|p| species2id[&underscore2point(&book.get(p).unwrap().species)])
+        .map(|p| species2id[&book.get(p).unwrap().species])
         .collect::<Vec<SpeciesID>>();
     let all_species = HashSet::from_iter(species.iter().cloned());
 
