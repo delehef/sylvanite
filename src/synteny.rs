@@ -1,4 +1,5 @@
 use crate::align;
+use crate::errors::{DataError, FileError};
 use crate::utils::*;
 use anyhow::*;
 use indicatif::ProgressBar;
@@ -21,7 +22,8 @@ pub fn process_file(
         PathBuf::from(Path::new(filename).parent().unwrap())
     };
     if !outdir.exists() {
-        std::fs::create_dir(&outdir).with_context(|| anyhow!("while creating `{:?}`", outdir))?;
+        std::fs::create_dir_all(&outdir)
+            .map_err(|source| FileError::WhileCreating { source, filename: String::new() })?;
     }
     let outfile = outdir.join(Path::new(filename).with_extension("dist").file_name().unwrap());
 
@@ -44,8 +46,8 @@ pub fn process_file(
             b.inc(1)
         }
         ids[0..i].par_iter().enumerate().try_for_each(|(j, g2)| {
-            let gg1 = book.get(g1).with_context(|| format!("`{}` not found in database", g1))?;
-            let gg2 = book.get(g2).with_context(|| format!("`{}` not found in database", g2))?;
+            let gg1 = book.get(g1).map_err(|_| DataError::UnknownId(g1.into()))?;
+            let gg2 = book.get(g2).map_err(|_| DataError::UnknownId(g2.into()))?;
 
             let score =
                 align::score_landscape(&gg1.landscape, &gg2.landscape, &|x, y| x.max(y) as f32);

@@ -7,8 +7,11 @@ use std::io::Write;
 use std::time::Instant;
 use utils::*;
 
+use crate::errors::FileError;
+
 mod align;
 mod dede;
+mod errors;
 mod polytomic_tree;
 mod sylva;
 mod synteny;
@@ -64,7 +67,7 @@ fn paths2files<S: AsRef<str>>(fs: &[S]) -> Result<Vec<String>> {
     let mut r = Vec::new();
     for f in fs {
         if std::fs::metadata(f.as_ref())
-            .with_context(|| anyhow!("{} not found", f.as_ref().white().bold()))?
+            .map_err(|_| errors::FileError::NotFound(f.as_ref().into()))?
             .is_dir()
         {
             let it = std::fs::read_dir(f.as_ref())?
@@ -117,8 +120,9 @@ fn main() -> Result<()> {
         } => {
             let batch_name = "pipo";
             let mut timings = if let Some(timings) = timings {
-                let mut timings = File::create(&timings)
-                    .with_context(|| format!("while creating {}", &timings))?;
+                let mut timings = File::create(&timings).map_err(|source| {
+                    FileError::WhileCreating { source, filename: timings.into() }
+                })?;
                 timings.write_all("file,size,time\n".as_bytes())?;
                 Some(timings)
             } else {
@@ -138,8 +142,10 @@ fn main() -> Result<()> {
 
                 let out_file = std::path::PathBuf::from(if let Some(ref outdir) = outdir {
                     if !std::path::Path::new(outdir).exists() {
-                        std::fs::create_dir(outdir)
-                            .with_context(|| anyhow!("while creating `{}`", outdir))?;
+                        std::fs::create_dir(outdir).map_err(|source| FileError::WhileCreating {
+                            source,
+                            filename: outdir.into(),
+                        })?;
                     }
                     format!(
                         "{}/{}",

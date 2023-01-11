@@ -1,4 +1,4 @@
-use crate::utils::*;
+use crate::{errors, utils::*};
 use anyhow::*;
 use itertools::Itertools;
 use log::*;
@@ -1464,7 +1464,7 @@ pub fn do_file(
     timings: &mut Option<File>,
 ) -> Result<String> {
     let mut species_tree = newick::one_from_filename(&speciestree_file)
-        .with_context(|| format!("can not open `{}`", speciestree_file))?;
+        .map_err(|_| errors::FileError::NotFound(speciestree_file.into()))?;
     species_tree.cache_leaves();
 
     let gene_families =
