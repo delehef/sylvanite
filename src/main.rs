@@ -83,8 +83,8 @@ fn paths2files<S: AsRef<str>>(fs: &[S]) -> Result<Vec<String>> {
 
 fn main() -> Result<()> {
     let args = Cli::parse();
-    stderrlog::new()
-        .timestamp(stderrlog::Timestamp::Off)
+    buche::new()
+        .timestamp(buche::Timestamp::Off)
         .verbosity(if args.verbose { 4 } else { 2 })
         .show_level(false)
         .init()

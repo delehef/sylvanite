@@ -10,6 +10,7 @@ license = "CECILL-2.1"
 [dependencies]
 anyhow = "1"
 atty = "0.2"
+buche = "0.7"
 clap = { version = "3", features = ["derive"] }
 colored = "2"
 indicatif = {version = "0.16", features = ["rayon"]}
@@ -19,7 +20,6 @@ newick = "0.5"
 ordered-float = "2"
 rayon = "1.5"
 rusqlite = "0.26"
-stderrlog = "0.4"
 
 [package.metadata.release]
 tag-prefix = ""
