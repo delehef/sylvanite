@@ -11,6 +11,7 @@ license = "CECILL-2.1"
 anyhow = "1"
 atty = "0.2"
 clap = { version = "3", features = ["derive"] }
+colored = "2"
 indicatif = {version = "0.16", features = ["rayon"]}
 itertools = "0.10"
 log = "0.4"

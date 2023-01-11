@@ -1,5 +1,6 @@
 use anyhow::*;
 use clap::{Parser, Subcommand};
+use colored::Colorize;
 use log::*;
 use std::fs::File;
 use std::io::Write;
@@ -18,7 +19,7 @@ mod utils;
 struct Cli {
     #[clap(short, long)]
     verbose: bool,
-    #[clap(short, long)]
+    #[clap(short = 'D', long)]
     database: String,
     #[clap(long)]
     cache_db: bool,
@@ -59,22 +60,25 @@ enum Commands {
     },
 }
 
-fn paths2files<S: AsRef<str>>(fs: &[S]) -> Vec<String> {
-    fs.iter()
-        .flat_map(|f| {
-            if std::fs::metadata(f.as_ref()).unwrap().is_dir() {
-                std::fs::read_dir(f.as_ref())
-                    .unwrap()
-                    .map(|entry| entry.unwrap().path())
-                    .filter(|p| std::fs::metadata(p).unwrap().is_file())
-                    .map(|p| p.to_str().unwrap().to_owned())
-                    .collect::<Vec<_>>()
-                    .into_iter()
-            } else {
-                vec![f.as_ref().to_owned()].into_iter()
-            }
-        })
-        .collect::<Vec<String>>()
+fn paths2files<S: AsRef<str>>(fs: &[S]) -> Result<Vec<String>> {
+    let mut r = Vec::new();
+    for f in fs {
+        if std::fs::metadata(f.as_ref())
+            .with_context(|| anyhow!("{} not found", f.as_ref().white().bold()))?
+            .is_dir()
+        {
+            let it = std::fs::read_dir(f.as_ref())?
+                .map(|entry| entry.unwrap().path())
+                .filter(|p| std::fs::metadata(p).unwrap().is_file())
+                .map(|p| p.to_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+                .into_iter();
+            r.extend(it);
+        } else {
+            r.push(f.as_ref().to_string())
+        }
+    }
+    Ok(r)
 }
 
 fn main() -> Result<()> {
@@ -94,7 +98,7 @@ fn main() -> Result<()> {
 
     match args.command {
         Commands::Align { infiles, outdir, bar } => {
-            for f in paths2files(&infiles).into_iter() {
+            for f in paths2files(&infiles)?.into_iter() {
                 info!("Processing {:?}", f);
                 let now = Instant::now();
                 let out = synteny::process_file(&f, &args.database, args.window, &outdir, bar)?;
@@ -121,7 +125,7 @@ fn main() -> Result<()> {
                 None
             };
 
-            for f in paths2files(&infiles).into_iter() {
+            for f in paths2files(&infiles)?.into_iter() {
                 let mut input_filename = std::path::PathBuf::from(&f);
                 input_filename.set_file_name(
                     input_filename
