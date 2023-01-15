@@ -8,6 +8,8 @@ use std::io::Read;
 use std::io::Write;
 use std::sync::Mutex;
 
+use crate::errors;
+
 #[allow(dead_code)]
 pub enum GeneBook {
     InMemory(HashMap<String, Gene>),
@@ -27,10 +29,7 @@ impl GeneBook {
         if landscape.is_empty() {
             Vec::new()
         } else {
-            landscape
-                .split('.')
-                .map(|x| x.parse::<usize>().unwrap())
-                .collect::<Vec<_>>()
+            landscape.split('.').map(|x| x.parse::<usize>().unwrap()).collect::<Vec<_>>()
         }
     }
 
@@ -82,8 +81,10 @@ impl GeneBook {
     pub fn in_memory(filename: &str, window: usize) -> Result<Self> {
         info!("Caching the database...");
 
-        let conn = Connection::open(filename)
-            .with_context(|| format!("while connecting to {}", filename))?;
+        let conn = Connection::open(filename).map_err(|e| errors::DataError::FailedToConnect {
+            source: e,
+            filename: filename.into(),
+        })?;
         let query = conn.prepare(
             "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes",
         )?;
@@ -95,8 +96,11 @@ impl GeneBook {
     pub fn cached<S: AsRef<str>>(filename: &str, window: usize, ids: &[S]) -> Result<Self> {
         info!("Caching the database...");
 
-        let conn = Connection::open(filename)
-            .with_context(|| format!("while connecting to {}", filename))?;
+        let conn = Connection::open(filename).map_err(|e| errors::DataError::FailedToConnect {
+            source: e,
+            filename: filename.into(),
+        })?;
+
         let query = conn.prepare(&format!(
             "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes WHERE protein IN ({})",
             std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(", ")
@@ -112,16 +116,19 @@ impl GeneBook {
 
     #[allow(dead_code)]
     pub fn inline(filename: &str, window: usize) -> Result<Self> {
-        let conn = Connection::open(filename)
-            .with_context(|| format!("while connecting to {}", filename))?;
+        let conn = Connection::open(filename).map_err(|e| errors::DataError::FailedToConnect {
+            source: e,
+            filename: filename.into(),
+        })?;
         Ok(GeneBook::Inline(Mutex::new(conn), window))
     }
 
     pub fn get(&self, g: &str) -> Result<Gene> {
         match self {
-            GeneBook::InMemory(book) | GeneBook::Cached(book) => {
-                book.get(g).cloned().ok_or_else(|| anyhow!("key not found"))
-            }
+            GeneBook::InMemory(book) | GeneBook::Cached(book) => book
+                .get(g)
+                .cloned()
+                .ok_or_else(|| errors::RuntimeError::IdNotFound(g.to_owned()).into()),
             GeneBook::Inline(conn_mutex, window) => {
                 let conn = conn_mutex.lock().expect("MUTEX POISONING");
                 let mut query = conn.prepare(
@@ -187,7 +194,7 @@ pub fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
 pub fn read_genefile(filename: &str) -> Result<Vec<Vec<String>>> {
     let mut filecontent = String::new();
     File::open(filename)
-        .with_context(|| format!("failed to read {}", filename))?
+        .map_err(|e| errors::FileError::CannotOpen { source: e, filename: filename.into() })?
         .read_to_string(&mut filecontent)?;
     let filecontent = filecontent.trim();
     if filecontent.starts_with('(') && filecontent.ends_with(';') {
@@ -208,9 +215,6 @@ pub fn read_genefile(filename: &str) -> Result<Vec<Vec<String>>> {
             })
             .collect()
     } else {
-        Ok(vec![filecontent
-            .split('\n')
-            .map(|s| s.to_owned())
-            .collect()])
+        Ok(vec![filecontent.split('\n').map(|s| s.to_owned()).collect()])
     }
 }

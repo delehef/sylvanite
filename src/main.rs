@@ -1,6 +1,5 @@
 use anyhow::*;
 use clap::{Parser, Subcommand};
-use colored::Colorize;
 use log::*;
 use std::fs::File;
 use std::io::Write;
@@ -89,7 +88,6 @@ fn main() -> Result<()> {
     buche::new()
         .timestamp(buche::Timestamp::Off)
         .verbosity(if args.verbose { 4 } else { 2 })
-        .show_level(false)
         .init()
         .unwrap();
 
@@ -135,9 +133,13 @@ fn main() -> Result<()> {
                     input_filename
                         .with_extension("nhx")
                         .file_name()
-                        .with_context(|| anyhow!("invalid filename found"))?
+                        .ok_or_else(|| {
+                            errors::FileError::InvalidFilename(format!("{:?}", input_filename))
+                        })?
                         .to_str()
-                        .with_context(|| anyhow!("invalid filename found"))?,
+                        .ok_or_else(|| {
+                            errors::FileError::InvalidFilename(format!("{:?}", input_filename))
+                        })?,
                 );
 
                 let out_file = std::path::PathBuf::from(if let Some(ref outdir) = outdir {
@@ -152,9 +154,15 @@ fn main() -> Result<()> {
                         outdir,
                         input_filename
                             .file_name()
-                            .with_context(|| anyhow!("invalid filename found"))?
+                            .ok_or_else(|| errors::FileError::InvalidFilename(format!(
+                                "{:?}",
+                                input_filename
+                            )))?
                             .to_str()
-                            .with_context(|| anyhow!("invalid filename found"))?,
+                            .ok_or_else(|| errors::FileError::InvalidFilename(format!(
+                                "{:?}",
+                                input_filename
+                            )))?
                     )
                 } else {
                     input_filename.to_str().unwrap().to_owned()

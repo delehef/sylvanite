@@ -1,3 +1,4 @@
+use crate::errors::{MatrixParseError, RuntimeError};
 use crate::{errors, utils::*};
 use anyhow::*;
 use itertools::Itertools;
@@ -183,7 +184,7 @@ fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatr
     let mut r2g = HashMap::<String, usize>::new();
 
     let mut lines = BufReader::new(File::open(filename)?).lines();
-    let nn = lines.next().ok_or_else(|| anyhow!("No size found in distmat"))??.parse::<usize>()?;
+    let nn = lines.next().ok_or_else(|| MatrixParseError::SizeMissing)??.parse::<usize>()?;
     ensure!(
         nn == n,
         format!("{} does not have the expected size (expected {}, found {})", filename, n, nn)
@@ -191,8 +192,8 @@ fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatr
     for (i, l) in lines.enumerate() {
         let l = l?;
         let mut s = l.split('\t');
-        let gene = s.next().ok_or_else(|| anyhow!("fsdf"))?.to_owned();
-        r2g.insert(gene, i);
+        let gene = s.next().ok_or_else(|| errors::MatrixParseError::ErroneousLine)?;
+        r2g.insert(gene.into(), i);
         for (j, x) in s.enumerate() {
             tmp[(i, j)] = x.parse::<f32>()?;
         }
@@ -224,13 +225,15 @@ fn make_register<'a>(
 
     info!("Parsing synteny matrix");
     let synteny_matrix = &format!("{}/{}.dist", syntenies, id);
-    let synteny = parse_dist_matrix(synteny_matrix, proteins)
-        .with_context(|| format!("while reading synteny matrix `{}`", synteny_matrix))?;
+    let synteny = parse_dist_matrix(synteny_matrix, proteins).map_err(|e| {
+        RuntimeError::FailedToReadMatrix { source: e, filename: synteny_matrix.to_owned() }
+    })?;
 
     info!("Parsing divergence matrix");
     let divergence_matrix = &format!("{}/{}.dist", divergences, id);
-    let divergence = parse_dist_matrix(divergence_matrix, proteins)
-        .with_context(|| format!("failed to read sequence matrix `{}`", divergence_matrix))?;
+    let divergence = parse_dist_matrix(divergence_matrix, proteins).map_err(|e| {
+        RuntimeError::FailedToReadMatrix { source: e, filename: divergence_matrix.to_owned() }
+    })?;
     let species2id = species_tree
         .leaves()
         .map(|l| {
@@ -252,10 +255,9 @@ fn make_register<'a>(
         .map(|p| {
             book.get(p)
                 .map(|x| x.landscape.len())
-                .with_context(|| format!("while looking up {}", p))
+                .map_err(|_| RuntimeError::IdNotFound(p.to_string()).into())
         })
-        .collect::<Result<Vec<_>>>()
-        .map_err(|e| anyhow!(format!("Can not find `{}` in database", e)))?;
+        .collect::<Result<Vec<_>>>()?;
 
     let mut core = proteins
         .iter()
@@ -268,8 +270,16 @@ fn make_register<'a>(
     }
     let species = proteins
         .iter()
-        .map(|p| species2id[&book.get(p).unwrap().species])
-        .collect::<Vec<SpeciesID>>();
+        .map(|p| {
+            book.get(p).map_err(|_| RuntimeError::IdNotFound(p.to_owned()).into()).and_then(
+                |protein| {
+                    species2id.get(&protein.species).cloned().ok_or_else(|| {
+                        RuntimeError::SpeciesNotFound(protein.species.to_owned()).into()
+                    })
+                },
+            )
+        })
+        .collect::<Result<Vec<SpeciesID>>>()?;
     let all_species = HashSet::from_iter(species.iter().cloned());
 
     let extended = proteins
@@ -1477,7 +1487,7 @@ pub fn do_file(
         .file_stem()
         .with_context(|| "asdfasdf")?
         .to_str()
-        .with_context(|| format!("`{}` is not a valid file name", filename))?;
+        .ok_or_else(|| errors::FileError::InvalidFilename(format!("{:?}", filename)))?;
 
     info!("===== Family {} -- {} proteins =====", id, family.len());
     let logs_root = format!("logs/{}/{}/", batch, id);
