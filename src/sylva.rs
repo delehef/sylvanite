@@ -1465,7 +1465,6 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
 pub fn do_file(
     filename: &str,
     batch: &str,
-    gene_book: Option<&GeneBook>,
     speciestree_file: &str,
     db_file: &str,
     window: usize,
@@ -1493,18 +1492,14 @@ pub fn do_file(
     let logs_root = format!("logs/{}/{}/", batch, id);
     std::fs::create_dir_all(&logs_root)?;
     let now = Instant::now();
-    let register = if let Some(book) = gene_book {
-        make_register(id, family, book, &species_tree, syntenies, divergences)
-    } else {
-        make_register(
-            id,
-            family,
-            &GeneBook::cached(db_file, window, family)?,
-            &species_tree,
-            syntenies,
-            divergences,
-        )
-    }?;
+    let register = make_register(
+        id,
+        family,
+        &GeneBook::cached(db_file, window, family)?,
+        &species_tree,
+        syntenies,
+        divergences,
+    )?;
     let out_tree = do_family(id, &register, &logs_root)?;
     info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
     if let Some(ref mut timings) = timings {

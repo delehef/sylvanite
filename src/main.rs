@@ -1,10 +1,9 @@
 use anyhow::*;
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand};
 use log::*;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
-use utils::*;
 
 use crate::errors::FileError;
 
@@ -21,8 +20,6 @@ mod utils;
 struct Cli {
     #[clap(short, long)]
     verbose: bool,
-    #[clap(short = 'D', long)]
-    database: String,
     #[clap(long)]
     cache_db: bool,
     #[clap(short, long, default_value_t = 15)]
@@ -37,6 +34,8 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     Align {
+        #[clap(short = 'D', long)]
+        database: String,
         #[clap(required = true)]
         infiles: Vec<String>,
         #[clap(short, long)]
@@ -45,6 +44,8 @@ enum Commands {
         bar: bool,
     },
     BuildTrees {
+        #[clap(short = 'D', long)]
+        database: String,
         #[clap(short = 'S', long, required = true)]
         species_tree: String,
         #[clap(short, long, required = true)]
@@ -94,17 +95,19 @@ fn main() -> Result<()> {
     rayon::ThreadPoolBuilder::new().num_threads(args.threads).build_global().unwrap();
     debug!("Using {} threads", rayon::current_num_threads());
 
-    let register =
-        if args.cache_db { Some(GeneBook::in_memory(&args.database, args.window)?) } else { None };
-
     match args.command {
-        Commands::Align { infiles, outdir, bar } => {
+        Commands::Align { infiles, outdir, bar, database } => {
             for f in paths2files(&infiles)?.into_iter() {
                 info!("Processing {:?}", f);
                 let now = Instant::now();
-                let out = synteny::process_file(&f, &args.database, args.window, &outdir, bar)?;
+                let out = synteny::process_file(&f, &database, args.window, &outdir, bar)?;
                 debug!("Done in {}s. Result written to {:?}", now.elapsed().as_secs(), out);
             }
+            Ok(())
+        }
+        Commands::BuildDatabase { gffs, emf } => {
+            dbg!(&emf);
+            dbg!(&gffs);
             Ok(())
         }
         Commands::BuildTrees {
@@ -115,6 +118,7 @@ fn main() -> Result<()> {
             outdir,
             timings,
             no_overwrite,
+            database,
         } => {
             let batch_name = "pipo";
             let mut timings = if let Some(timings) = timings {
@@ -174,9 +178,8 @@ fn main() -> Result<()> {
                     let tree = sylva::do_file(
                         &f,
                         batch_name,
-                        register.as_ref(),
                         &species_tree,
-                        &args.database,
+                        &database,
                         args.window,
                         &syntenies,
                         &divergences,
