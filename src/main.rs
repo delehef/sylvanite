@@ -33,31 +33,55 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Create intra-family syntenic distance matrices from the provided syntenics database
     Align {
+        /// the path to the genomes database; to be built with `build-database`
         #[clap(short = 'D', long)]
         database: String,
+
+        /// the gene families for which to build the syntenic distance matrices
         #[clap(required = true)]
         infiles: Vec<String>,
+
+        /// where to store the computed matrices
         #[clap(short, long)]
         outdir: Option<String>,
+
+        /// if set, display a progress bar
         #[clap(short, long)]
         bar: bool,
     },
+    /// Create gene family trees from gene families, syntenic & sequence distance matrices, and syntenic database
     BuildTrees {
+        /// the path to the genomes database; to be built with `build-database`
         #[clap(short = 'D', long)]
         database: String,
+
+        /// the species tree to use
         #[clap(short = 'S', long, required = true)]
         species_tree: String,
+
+        /// where to find the syntenic distance matrices; can be a file or a path
         #[clap(short, long, required = true)]
         syntenies: String,
+
+        /// where to find the sequence distance matrices; can be a file or a path
         #[clap(short, long, required = true)]
         divergences: String,
+
+        /// the gene family files to build trees from
         #[clap(required = true)]
         infiles: Vec<String>,
+
+        /// where to write the created trees
         #[clap(short, long)]
         outdir: Option<String>,
+
+        /// if set, where to write the computation time statistics
         #[clap(long)]
         timings: Option<String>,
+
+        /// if set, do not overwrite already existing files
         #[clap(long)]
         no_overwrite: bool,
     },
