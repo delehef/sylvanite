@@ -12,6 +12,7 @@ anyhow = "1"
 atty = "0.2"
 buche = "0.7"
 clap = { version = "3", features = ["derive"] }
+clap-verbosity-flag = "1"
 colored = "2"
 indicatif = {version = "0.16", features = ["rayon"]}
 itertools = "0.10"

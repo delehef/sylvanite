@@ -18,12 +18,15 @@ mod utils;
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 struct Cli {
-    #[clap(short, long)]
-    verbose: bool,
+    #[clap(flatten)]
+    verbose: clap_verbosity_flag::Verbosity,
+
     #[clap(long)]
     cache_db: bool,
+
     #[clap(short, long, default_value_t = 15)]
     window: usize,
+
     #[clap(short, long, default_value_t = 0)]
     threads: usize,
 
@@ -112,7 +115,7 @@ fn main() -> Result<()> {
     let args = Cli::parse();
     buche::new()
         .timestamp(buche::Timestamp::Off)
-        .verbosity(if args.verbose { 4 } else { 2 })
+        .verbosity(args.verbose.log_level_filter())
         .init()
         .unwrap();
 
