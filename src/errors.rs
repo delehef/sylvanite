@@ -17,15 +17,6 @@ pub enum FileError {
 }
 
 #[derive(Error, Debug)]
-pub enum DataError {
-    #[error("ID {} not found in the specified database", .0.yellow().bold())]
-    UnknownId(String),
-
-    #[error("failed to connect to d")]
-    FailedToConnect { source: rusqlite::Error, filename: String },
-}
-
-#[derive(Error, Debug)]
 pub enum MatrixParseError {
     #[error("size missing in distance matrix")]
     SizeMissing,

@@ -1,5 +1,5 @@
 use crate::align;
-use crate::errors::{DataError, FileError};
+use crate::errors::{FileError, RuntimeError};
 use crate::utils::*;
 use anyhow::*;
 use indicatif::ProgressBar;
@@ -33,7 +33,7 @@ pub fn process_file(
         bail!("{} should contain a single family", filename)
     }
     let ids = &gene_families[0];
-    let book = GeneBook::cached(db_file, window, ids)?;
+    let book = GeneBook::cached(db_file, window, "id", ids)?;
 
     let n = ids.len();
     let m = Mutex::new(vec![0f32; n * (n - 1) / 2]);
@@ -47,8 +47,8 @@ pub fn process_file(
             b.inc(1)
         }
         ids[0..i].par_iter().enumerate().try_for_each(|(j, g2)| {
-            let gg1 = book.get(g1).map_err(|_| DataError::UnknownId(g1.into()))?;
-            let gg2 = book.get(g2).map_err(|_| DataError::UnknownId(g2.into()))?;
+            let gg1 = book.get(g1).map_err(|_| RuntimeError::IdNotFound(g1.into()))?;
+            let gg2 = book.get(g2).map_err(|_| RuntimeError::IdNotFound(g2.into()))?;
 
             let score =
                 align::score_landscape(&gg1.landscape, &gg2.landscape, &|x, y| x.max(y) as f32);

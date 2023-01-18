@@ -905,7 +905,7 @@ dependencies = [
 [[package]]
 name = "syntesuite"
 version = "0.1.0"
-source = "git+https://github.com/delehef/syntesuite#f11f306c9d6890b366cb080fe5a0b24cda9c8757"
+source = "git+https://github.com/delehef/syntesuite#adeeac2356d610d066ed647ba3f01ff30c62e1bb"
 dependencies = [
  "anyhow",
  "colored",

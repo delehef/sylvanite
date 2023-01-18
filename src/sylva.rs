@@ -1481,7 +1481,7 @@ pub fn do_file(
     let register = make_register(
         id,
         family,
-        &GeneBook::cached(db_file, window, family)?,
+        &GeneBook::cached(db_file, window, "id", family)?,
         &species_tree,
         syntenies,
         divergences,
