@@ -11,6 +11,7 @@ use std::fs::File;
 use std::hash::Hash;
 use std::io::{BufRead, BufReader, Write};
 use std::time::Instant;
+use syntesuite::genebook::GeneBook;
 
 const RELAXED_SYNTENY_THRESHOLD: OrderedFloat<f32> = OrderedFloat(0.15);
 const MIN_INFORMATIVE_SYNTENY: usize = 3;

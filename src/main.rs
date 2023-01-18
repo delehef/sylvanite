@@ -8,7 +8,6 @@ use std::time::Instant;
 use crate::errors::FileError;
 
 mod align;
-mod dbmaker;
 mod dede;
 mod errors;
 mod polytomic_tree;
@@ -178,7 +177,7 @@ fn main() -> Result<()> {
             families,
         } => {
             if let Some(gffs) = gffs {
-                dbmaker::db_from_gffs(
+                syntesuite::dbmaker::db_from_gffs(
                     &families,
                     &gffs,
                     &outfile,

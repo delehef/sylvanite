@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::*;
 use std::sync::Mutex;
+use syntesuite::genebook::GeneBook;
 
 pub fn process_file(
     filename: &str,

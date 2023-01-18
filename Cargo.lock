@@ -887,6 +887,7 @@ dependencies = [
  "rayon",
  "regex",
  "rusqlite",
+ "syntesuite",
  "thiserror",
 ]
 
@@ -899,6 +900,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "syntesuite"
+version = "0.1.0"
+source = "git+https://github.com/delehef/syntesuite#f11f306c9d6890b366cb080fe5a0b24cda9c8757"
+dependencies = [
+ "anyhow",
+ "colored",
+ "flate2",
+ "log",
+ "petname",
+ "regex",
+ "rusqlite",
+ "thiserror",
 ]
 
 [[package]]
