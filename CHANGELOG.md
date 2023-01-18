@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2023-01-18
+
+### Miscellaneous Tasks
+
+- Update syntesuite
+
 ## [1.4.0] - 2023-01-18
 
 ### Documentation
@@ -23,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - Standardize errors
 - Update newick
 - Release sylvanite version 1.3.0
+- Release sylvanite version 1.4.0
 
 ### Refactor
 
