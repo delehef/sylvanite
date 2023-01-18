@@ -1,5 +1,6 @@
 use anyhow::*;
 use log::*;
+use newick::Newick;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::fs::File;
@@ -199,10 +200,7 @@ pub fn read_genefile(filename: &str) -> Result<Vec<Vec<String>>> {
             .map(|tree| {
                 tree.leaves()
                     .map(|l| {
-                        tree[l]
-                            .data
-                            .name
-                            .as_ref()
+                        tree.name(l)
                             .map(|s| s.to_owned())
                             .with_context(|| format!("nameless leaf found in {:?}", filename))
                     })

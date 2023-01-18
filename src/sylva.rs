@@ -3,7 +3,7 @@ use crate::{errors, utils::*};
 use anyhow::*;
 use itertools::Itertools;
 use log::*;
-use newick::*;
+use newick::{Newick, NewickTree};
 use ordered_float::OrderedFloat;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -70,12 +70,7 @@ type Duplications = Vec<Duplication>;
 impl<'st> Register<'st> {
     pub fn species_name(&self, x: SpeciesID) -> String {
         if x > 0 {
-            self.species_tree[x]
-                .data
-                .name
-                .as_ref()
-                .map(|x| x.to_string())
-                .unwrap_or_else(|| "UNKNWN".to_string())
+            self.species_tree.name(x).map(|x| x.to_string()).unwrap_or_else(|| "UNKNWN".to_string())
         } else {
             "UNKNWN".into()
         }
@@ -236,17 +231,7 @@ fn make_register<'a>(
     })?;
     let species2id = species_tree
         .leaves()
-        .map(|l| {
-            (
-                species_tree[l]
-                    .data
-                    .name
-                    .as_ref()
-                    .expect("Found nameless leaf in species tree")
-                    .to_owned(),
-                l,
-            )
-        })
+        .map(|l| (species_tree.name(l).expect("Found nameless leaf in species tree").to_owned(), l))
         .collect::<HashMap<_, _>>();
 
     info!("Storing gene data");
