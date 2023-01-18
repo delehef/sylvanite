@@ -8,6 +8,7 @@ use std::time::Instant;
 use crate::errors::FileError;
 
 mod align;
+mod dbmaker;
 mod dede;
 mod errors;
 mod polytomic_tree;
@@ -53,6 +54,41 @@ enum Commands {
         /// if set, display a progress bar
         #[clap(short, long)]
         bar: bool,
+    },
+    #[clap(group(
+            ArgGroup::new("genomes")
+                .required(true)
+                .args(&["gffs", "emf"]),
+        ))]
+    /// Create a syntenic database of the provided genomes
+    BuildDatabase {
+        /// the files and/or directories containing the gene families to process
+        #[clap(long, required = true)]
+        families: Vec<String>,
+
+        /// where to write the database
+        #[clap(long = "out", short = 'o')]
+        outfile: String,
+
+        /// the path to the EMF file to process
+        #[clap(long)]
+        emf: Option<String>,
+
+        /// the directory containing the GFF3 files to process; those can be gzipped
+        #[clap(long)]
+        gffs: Option<Vec<String>>,
+
+        /// the features to extract from GFF files
+        #[clap(long, default_value_t = String::from("gene"))]
+        id_type: String,
+
+        /// regex to extract feature name from GFF ID field; must contain a named capture group `id`
+        #[clap(long, default_value_t = String::from("gene:(?P<id>.*)"))]
+        id_pattern: String,
+
+        /// regex to extract species name from GFF file name; must contain a named capture group `species`
+        #[clap(long, default_value_t = String::from("(?P<species>.*).gff3"))]
+        species_pattern: String,
     },
     /// Create gene family trees from gene families, syntenic & sequence distance matrices, and syntenic database
     BuildTrees {
@@ -132,10 +168,30 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Commands::BuildDatabase { gffs, emf } => {
-            dbg!(&emf);
-            dbg!(&gffs);
-            Ok(())
+        Commands::BuildDatabase {
+            gffs,
+            emf,
+            species_pattern,
+            outfile,
+            id_type,
+            id_pattern,
+            families,
+        } => {
+            if let Some(gffs) = gffs {
+                dbmaker::db_from_gffs(
+                    &families,
+                    &gffs,
+                    &outfile,
+                    &species_pattern,
+                    &id_type,
+                    &id_pattern,
+                    args.window as isize,
+                )
+            } else if let Some(_emf) = emf {
+                todo!()
+            } else {
+                unreachable!()
+            }
         }
         Commands::BuildTrees {
             species_tree,
@@ -147,7 +203,7 @@ fn main() -> Result<()> {
             no_overwrite,
             database,
         } => {
-            let batch_name = "pipo";
+            let logs = "logs";
             let mut timings = if let Some(timings) = timings {
                 let mut timings = File::create(&timings).map_err(|source| {
                     FileError::WhileCreating { source, filename: timings.into() }
@@ -204,7 +260,7 @@ fn main() -> Result<()> {
                 } else {
                     let tree = sylva::do_file(
                         &f,
-                        batch_name,
+                        logs,
                         &species_tree,
                         &database,
                         args.window,

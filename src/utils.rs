@@ -19,7 +19,6 @@ pub enum GeneBook {
 
 #[derive(Clone, Default)]
 pub struct Gene {
-    pub gene: String,
     pub species: String,
     pub landscape: Vec<usize>,
 }
@@ -41,12 +40,11 @@ impl GeneBook {
         let genes = query
             .query_map(params, |r| {
                 std::result::Result::Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, String>(3)?,
-                    r.get::<_, usize>(4)?,
-                    r.get::<_, String>(5)?,
+                    r.get::<_, String>(0)?, // id
+                    r.get::<_, String>(1)?, // left tail
+                    r.get::<_, String>(2)?, // right tail
+                    r.get::<_, usize>(3)?,  // ancestral id
+                    r.get::<_, String>(4)?, // species
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -54,22 +52,21 @@ impl GeneBook {
         Ok(genes
             .into_iter()
             .map(|g| {
-                let mut left_landscape = Self::parse_landscape(&g.2);
+                let mut left_landscape = Self::parse_landscape(&g.1);
                 left_landscape.reverse();
                 left_landscape.truncate(window);
                 left_landscape.reverse();
 
-                let mut right_landscape = Self::parse_landscape(&g.3);
+                let mut right_landscape = Self::parse_landscape(&g.2);
                 right_landscape.truncate(window);
 
                 (
-                    g.1.clone(),
+                    g.0.clone(),
                     Gene {
-                        gene: g.0,
-                        species: g.5,
+                        species: g.4,
                         landscape: left_landscape
                             .into_iter()
-                            .chain([g.4].into_iter())
+                            .chain([g.3].into_iter())
                             .chain(right_landscape.into_iter())
                             .collect(),
                     },
@@ -86,7 +83,7 @@ impl GeneBook {
             filename: filename.into(),
         })?;
         let query = conn.prepare(
-            "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes",
+            "SELECT id, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes",
         )?;
         let r = Self::get_rows(query, [], window)?;
         info!("Done.");
@@ -102,7 +99,7 @@ impl GeneBook {
         })?;
 
         let query = conn.prepare(&format!(
-            "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes WHERE protein IN ({})",
+            "SELECT id, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes WHERE id IN ({})",
             std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(", ")
         ))?;
         let r = Self::get_rows(
@@ -132,27 +129,25 @@ impl GeneBook {
             GeneBook::Inline(conn_mutex, window) => {
                 let conn = conn_mutex.lock().expect("MUTEX POISONING");
                 let mut query = conn.prepare(
-                    "SELECT gene, protein, left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes WHERE protein=?",
+                    "SELECT left_tail_ids, right_tail_ids, ancestral_id, species FROM genomes WHERE id=?",
                 )?;
                 query
                     .query_row(&[g], |r| {
-                        let gene = r.get::<_, String>(0)?;
-                        let species = r.get::<_, String>(5)?;
+                        let species = r.get::<_, String>(3)?;
 
-                        let mut left_landscape = Self::parse_landscape(&r.get::<_, String>(2)?);
+                        let mut left_landscape = Self::parse_landscape(&r.get::<_, String>(0)?);
                         left_landscape.reverse();
                         left_landscape.truncate(*window);
                         left_landscape.reverse();
 
-                        let mut right_landscape = Self::parse_landscape(&r.get::<_, String>(3)?);
+                        let mut right_landscape = Self::parse_landscape(&r.get::<_, String>(1)?);
                         right_landscape.truncate(*window);
 
                         rusqlite::Result::Ok(Gene {
-                            gene,
                             species,
                             landscape: left_landscape
                                 .into_iter()
-                                .chain([r.get::<usize, _>(4)?].into_iter())
+                                .chain([r.get::<usize, _>(2)?].into_iter())
                                 .chain(right_landscape.into_iter())
                                 .collect(),
                         })

@@ -184,7 +184,7 @@ fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatr
     let mut r2g = HashMap::<String, usize>::new();
 
     let mut lines = BufReader::new(File::open(filename)?).lines();
-    let nn = lines.next().ok_or_else(|| MatrixParseError::SizeMissing)??.parse::<usize>()?;
+    let nn = lines.next().ok_or(MatrixParseError::SizeMissing)??.parse::<usize>()?;
     ensure!(
         nn == n,
         format!("{} does not have the expected size (expected {}, found {})", filename, n, nn)
@@ -192,7 +192,7 @@ fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatr
     for (i, l) in lines.enumerate() {
         let l = l?;
         let mut s = l.split('\t');
-        let gene = s.next().ok_or_else(|| errors::MatrixParseError::ErroneousLine)?;
+        let gene = s.next().ok_or(MatrixParseError::ErroneousLine)?;
         r2g.insert(gene.into(), i);
         for (j, x) in s.enumerate() {
             tmp[(i, j)] = x.parse::<f32>()?;
@@ -1464,7 +1464,7 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
 
 pub fn do_file(
     filename: &str,
-    batch: &str,
+    logs: &str,
     speciestree_file: &str,
     db_file: &str,
     window: usize,
@@ -1489,7 +1489,7 @@ pub fn do_file(
         .ok_or_else(|| errors::FileError::InvalidFilename(format!("{:?}", filename)))?;
 
     info!("===== Family {} -- {} proteins =====", id, family.len());
-    let logs_root = format!("logs/{}/{}/", batch, id);
+    let logs_root = format!("{}/{}/", logs, id);
     std::fs::create_dir_all(&logs_root)?;
     let now = Instant::now();
     let register = make_register(

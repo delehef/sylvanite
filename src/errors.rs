@@ -3,7 +3,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum FileError {
-    #[error("filed to open {}", .filename.bright_yellow().bold())]
+    #[error("failed to open {}", .filename.bright_yellow().bold())]
     CannotOpen { source: std::io::Error, filename: String },
 
     #[error("{} not found", .0.bright_yellow().bold())]
@@ -39,7 +39,7 @@ pub enum RuntimeError {
     #[error("species {} not found in the provided species tree", .0.yellow().bold())]
     SpeciesNotFound(String),
 
-    #[error("ID {} not found in the provided database", .0.yellow().bold())]
+    #[error("ID {} not found in the specified database", .0.yellow().bold())]
     IdNotFound(String),
 
     #[error("failed to read distance matrix {}", .filename.yellow().bold())]
