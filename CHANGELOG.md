@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2023-01-18
+
+### Documentation
+
+- Document CLI options
+
+### Features
+
+- Better message error in case of missing files
+- Add `build-database`
+
+### Miscellaneous Tasks
+
+- Sylva should not handle species tree conventions
+- Update dependencies
+- Stderrlog -> buche
+- Add error types
+- Update dependencies
+- Standardize errors
+- Update newick
+
+### Refactor
+
+- Simplify database handling
+- Use clap_verbose
+
 ## [1.2.1] - 2023-01-04
 
 ### Bug Fixes
@@ -11,6 +37,7 @@ All notable changes to this project will be documented in this file.
 ### Miscellaneous Tasks
 
 - Gitignore++
+- Release sylvanite version 1.2.1
 
 ## [1.2.0] - 2023-01-02
 
