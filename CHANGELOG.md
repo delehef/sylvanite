@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.3.0] - 2023-01-18
+## [1.4.0] - 2023-01-18
 
 ### Documentation
 
@@ -22,11 +22,13 @@ All notable changes to this project will be documented in this file.
 - Update dependencies
 - Standardize errors
 - Update newick
+- Release sylvanite version 1.3.0
 
 ### Refactor
 
 - Simplify database handling
 - Use clap_verbose
+- Extract syntesuite
 
 ## [1.2.1] - 2023-01-04
 
