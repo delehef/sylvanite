@@ -24,7 +24,7 @@ petname = "1.1.3"
 rayon = "1.5"
 regex = "1.7.1"
 rusqlite = "0.26"
-syntesuite = { git = "https://github.com/delehef/syntesuite" }
+syntesuite = "0.1"
 thiserror = "1"
 
 [package.metadata.release]
