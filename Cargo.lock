@@ -883,7 +883,6 @@ dependencies = [
  "log",
  "newick",
  "ordered-float",
- "petname",
  "rayon",
  "regex",
  "rusqlite",
