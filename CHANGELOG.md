@@ -2,11 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2023-01-23
+
+### Miscellaneous Tasks
+
+- Remove unused dependency
+
 ## [1.4.2] - 2023-01-23
 
 ### Miscellaneous Tasks
 
 - Update dependencies
+- Release sylvanite version 1.4.2
 
 ## [1.4.1] - 2023-01-18
 
