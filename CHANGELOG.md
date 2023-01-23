@@ -2,13 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.2] - 2023-01-23
+
+### Miscellaneous Tasks
+
+- Update dependencies
+
 ## [1.4.1] - 2023-01-18
 
 ### Miscellaneous Tasks
 
 - Update syntesuite
+- Release sylvanite version 1.4.1
 
 ## [1.4.0] - 2023-01-18
+
+### Miscellaneous Tasks
+
+- Release sylvanite version 1.4.0
+
+### Refactor
+
+- Extract syntesuite
+
+## [1.3.0] - 2023-01-18
 
 ### Documentation
 
@@ -29,13 +46,11 @@ All notable changes to this project will be documented in this file.
 - Standardize errors
 - Update newick
 - Release sylvanite version 1.3.0
-- Release sylvanite version 1.4.0
 
 ### Refactor
 
 - Simplify database handling
 - Use clap_verbose
-- Extract syntesuite
 
 ## [1.2.1] - 2023-01-04
 
