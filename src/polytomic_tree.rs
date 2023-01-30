@@ -212,10 +212,6 @@ impl<T: Clone, S> PTree<T, S> {
         }
         r.push_str(&children);
         r.push(')');
-
-        if !self.nodes[&i].children.is_empty() || self.nodes[&i].content.len() > 1 {
-            r.push_str(&format!("{}-{}", f_tag(&self.nodes[&i].tag), i));
-        }
         r.push_str(&format!("[&&NHX:S={}]", f_tag(&self.nodes[&i].tag)));
 
         r

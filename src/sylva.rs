@@ -1,6 +1,7 @@
 use crate::errors::{MatrixParseError, RuntimeError};
 use crate::{errors, utils::*};
 use anyhow::*;
+use colored::Colorize;
 use itertools::Itertools;
 use log::*;
 use newick::{Newick, NewickTree};
@@ -1393,11 +1394,7 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
         tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)).as_bytes(),
     )?;
 
-    for s in satellites.iter() {
-        tree.add_node(&[*s], register.species[*s], Some(root));
-    }
-
-    for s in register.solos.iter() {
+    for s in satellites.iter().chain(register.solos.iter()) {
         tree.add_node(&[*s], register.species[*s], Some(root));
     }
 
@@ -1459,7 +1456,7 @@ pub fn do_file(
     timings: &mut Option<File>,
 ) -> Result<String> {
     let mut species_tree = newick::one_from_filename(&speciestree_file)
-        .map_err(|_| errors::FileError::NotFound(speciestree_file.into()))?;
+        .with_context(|| anyhow!("while opening {}", speciestree_file.yellow().bold()))?;
     species_tree.cache_leaves();
 
     let gene_families =
