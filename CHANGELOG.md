@@ -2,11 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.2] - 2023-01-30
+
+### Bug Fixes
+
+- Do not output internal data
+
 ## [1.5.1] - 2023-01-23
 
 ### Miscellaneous Tasks
 
 - Update dependencies
+- Release sylvanite version 1.5.1
 
 ## [1.5.0] - 2023-01-23
 
