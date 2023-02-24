@@ -31,10 +31,9 @@ fn round(x: f32, d: i8) -> f32 {
 }
 
 struct Register<'a> {
-    size: usize,
     landscape_size: Vec<usize>,
     core: Vec<GeneID>,
-    proteins: Vec<String>,
+    genes: Vec<String>,
     species: Vec<SpeciesID>,
     all_species: HashSet<SpeciesID>,
     synteny: VecMatrix<f32>,
@@ -42,6 +41,11 @@ struct Register<'a> {
     species_tree: &'a NewickTree,
     extended: Vec<GeneID>,
     solos: Vec<GeneID>,
+}
+impl Register<'_> {
+    fn size(&self) -> usize {
+        self.genes.len()
+    }
 }
 
 #[derive(Debug)]
@@ -54,7 +58,7 @@ impl Duplication {
     pub fn pretty<'a>(&self, register: &'a Register) {
         println!(
             "  {:?}",
-            view(&register.proteins, &self.content).cloned().collect::<Vec<String>>().join(" ")
+            view(&register.genes, &self.content).cloned().collect::<Vec<String>>().join(" ")
         );
         println!(
             "  {:?}",
@@ -159,7 +163,7 @@ impl<'st> Register<'st> {
     }
 
     pub fn make_label(&self, x: GeneID) -> String {
-        format!("{}[&&NHX:S={}]", &self.proteins[x], self.species_name(self.species[x]))
+        format!("{}[&&NHX:S={}]", &self.genes[x], self.species_name(self.species[x]))
     }
 }
 
@@ -285,10 +289,9 @@ fn make_register<'a>(
         .collect::<Vec<_>>();
     let solos = Vec::from_iter((0..proteins.len()).filter(|&p| landscape_sizes[p] == 1));
     let register = Register {
-        size: proteins.len(),
         landscape_size: landscape_sizes,
         core,
-        proteins: proteins.to_owned(),
+        genes: proteins.to_owned(),
         species,
         all_species,
         synteny,
@@ -464,7 +467,7 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
 
     let mut local_synteny = register.synteny.clone();
     for i in extended.iter() {
-        for j in 0..register.size {
+        for j in 0..register.size() {
             if j != *i {
                 let score = local_synteny[(*i, j)]
                     * register.landscape_size[*i].max(register.landscape_size[j]) as f32;
@@ -502,7 +505,7 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
         .collect::<HashMap<_, _>>();
 
     for id in extended.iter() {
-        let log = ["ENSNSUP00000004150"].contains(&register.proteins[*id].as_str());
+        let log = ["ENSNSUP00000004150"].contains(&register.genes[*id].as_str());
 
         let mut candidate_clusters = t
             .nodes()
@@ -548,12 +551,12 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
         }
 
         if log {
-            info!("EXTENDED {}", register.proteins[*id],);
+            info!("EXTENDED {}", register.genes[*id],);
             for cc in &candidate_clusters {
                 let c = cc.1;
                 info!(
                     "    {:20} --> SYN: {:.2} DV: {:2.2} ΔELC: {}",
-                    register.proteins[t[cc.0].content[0]], c.2, c.1, c.0,
+                    register.genes[t[cc.0].content[0]], c.2, c.1, c.0,
                 );
             }
         }
@@ -582,7 +585,7 @@ fn grow_duplication(
         })
         .collect::<Vec<_>>();
     sources.get_mut(&seed_species).unwrap().clear();
-    let log = view(&register.proteins, ds.iter().flat_map(|d| d.content.iter())).any(|s| {
+    let log = view(&register.genes, ds.iter().flat_map(|d| d.content.iter())).any(|s| {
         [
             "ENSDCDP00000006390",
             "ENSHHUP00000059113",
@@ -850,13 +853,9 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
             f.sort_by_cached_key(|d| d.content.iter().unique_by(|g| register.species[**g]).count());
 
             while let Some(d) = f.pop() {
-                let log = view(&register.proteins, &d.content).any(|x| x == "ENSMSIP00000026938");
+                let log = view(&register.genes, &d.content).any(|x| x == "ENSMSIP00000026938");
                 if log {
-                    println!(
-                        "{} {}",
-                        register.proteins[d.content[0]],
-                        register.species_name(d.root)
-                    );
+                    println!("{} {}", register.genes[d.content[0]], register.species_name(d.root));
                 }
                 let root_candidates = t
                     .descendants(i)
@@ -1048,7 +1047,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                     bb.1,
                     bb.2,
                     register.species_name(t[*b].tag),
-                    leaves[b].first().map(|g| register.proteins[*g].as_str()).unwrap_or("EMPTY")
+                    leaves[b].first().map(|g| register.genes[*g].as_str()).unwrap_or("EMPTY")
                 );
             }
         }
@@ -1090,7 +1089,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                     bb.1,
                     bb.2,
                     register.species_name(t[*b].tag),
-                    leaves[b].first().map(|g| register.proteins[*g].as_str()).unwrap_or("EMPTY")
+                    leaves[b].first().map(|g| register.genes[*g].as_str()).unwrap_or("EMPTY")
                 );
             }
         }
@@ -1420,23 +1419,23 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
         tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)).as_bytes(),
     )?;
 
-    if register.size != tree.descendant_leaves(root).len() {
+    if register.size() != tree.descendant_leaves(root).len() {
         error!(
             "Gene mismatch: expected {}, found {}",
-            register.size,
+            register.size(),
             tree.descendant_leaves(root).len()
         );
         let mut mine = tree.descendant_leaves(root);
         mine.sort();
         for gs in mine.windows(2) {
             if gs[0] == gs[1] {
-                warn!("Double: {}", register.proteins[gs[0]]);
+                warn!("Double: {}", register.genes[gs[0]]);
             }
         }
         let mine = HashSet::<String>::from_iter(
-            tree.descendant_leaves(root).iter().map(|l| register.proteins[*l].to_owned()),
+            tree.descendant_leaves(root).iter().map(|l| register.genes[*l].to_owned()),
         );
-        let others = HashSet::from_iter(register.proteins.iter().cloned());
+        let others = HashSet::from_iter(register.genes.iter().cloned());
         let missings = others.difference(&mine).collect::<Vec<_>>();
         info!("{:?}", missings);
         bail!("genes number mismatch")
