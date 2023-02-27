@@ -50,8 +50,11 @@ pub fn process_file(
             let gg1 = book.get(g1).map_err(|_| RuntimeError::IdNotFound(g1.into()))?;
             let gg2 = book.get(g2).map_err(|_| RuntimeError::IdNotFound(g2.into()))?;
 
-            let score =
-                align::score_landscape(&gg1.landscape, &gg2.landscape, &|x, y| x.max(y) as f32);
+            let score = align::score_landscape(
+                &gg1.landscape().collect::<Vec<_>>(),
+                &gg2.landscape().collect::<Vec<_>>(),
+                &|x, y| x.max(y) as f32,
+            );
             m.lock()
                 .map(|mut m| {
                     m[i * (i - 1) / 2 + j] = score;

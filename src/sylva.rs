@@ -30,10 +30,41 @@ fn round(x: f32, d: i8) -> f32 {
     (x * ten).round() / ten
 }
 
+#[derive(Clone, Hash, PartialEq, Eq)]
+enum Gene {
+    Single(String),
+    Tandem(Vec<String>),
+}
+impl Gene {
+    fn to_string(&self) -> String {
+        match self {
+            Gene::Single(name) => name.clone(),
+            Gene::Tandem(xs) => xs.join("-"),
+        }
+    }
+    fn id(&self) -> &str {
+        match self {
+            Gene::Single(p) => p,
+            Gene::Tandem(ps) => &ps[0],
+        }
+    }
+}
+impl std::fmt::Debug for Gene {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+impl std::fmt::Display for Gene {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
 struct Register<'a> {
+    real_size: usize,
     landscape_size: Vec<usize>,
     core: Vec<GeneID>,
-    genes: Vec<String>,
+    genes: Vec<Gene>,
     species: Vec<SpeciesID>,
     all_species: HashSet<SpeciesID>,
     synteny: VecMatrix<f32>,
@@ -45,6 +76,9 @@ struct Register<'a> {
 impl Register<'_> {
     fn size(&self) -> usize {
         self.genes.len()
+    }
+    fn real_size(&self) -> usize {
+        self.real_size
     }
 }
 
@@ -58,7 +92,10 @@ impl Duplication {
     pub fn pretty<'a>(&self, register: &'a Register) {
         println!(
             "  {:?}",
-            view(&register.genes, &self.content).cloned().collect::<Vec<String>>().join(" ")
+            view(&register.genes, &self.content)
+                .map(Gene::to_string)
+                .collect::<Vec<String>>()
+                .join(" ")
         );
         println!(
             "  {:?}",
@@ -163,7 +200,16 @@ impl<'st> Register<'st> {
     }
 
     pub fn make_label(&self, x: GeneID) -> String {
-        format!("{}[&&NHX:S={}]", &self.genes[x], self.species_name(self.species[x]))
+        match &self.genes[x] {
+            Gene::Single(n) => {
+                format!(
+                    "{}[&&NHX:S={}]",
+                    n,
+                    self.species_name(self.species.get(x).cloned().unwrap_or(0)) // TODO
+                )
+            }
+            Gene::Tandem(xs) => xs[0].to_owned(),
+        }
     }
 }
 
@@ -216,23 +262,22 @@ fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatr
 
 fn make_register<'a>(
     id: &str,
-    proteins: &[String],
+    genes: &[String],
     book: &GeneBook,
     species_tree: &'a NewickTree,
     syntenies: &str,
     divergences: &str,
 ) -> Result<Register<'a>> {
     info!("Building register");
-
     info!("Parsing synteny matrix");
     let synteny_matrix = &format!("{}/{}.dist", syntenies, id);
-    let synteny = parse_dist_matrix(synteny_matrix, proteins).map_err(|e| {
+    let synteny = parse_dist_matrix(synteny_matrix, genes).map_err(|e| {
         RuntimeError::FailedToReadMatrix { source: e, filename: synteny_matrix.to_owned() }
     })?;
 
     info!("Parsing divergence matrix");
     let divergence_matrix = &format!("{}/{}.dist", divergences, id);
-    let divergence = parse_dist_matrix(divergence_matrix, proteins).map_err(|e| {
+    let divergence = parse_dist_matrix(divergence_matrix, genes).map_err(|e| {
         RuntimeError::FailedToReadMatrix { source: e, filename: divergence_matrix.to_owned() }
     })?;
     let species2id = species_tree
@@ -240,29 +285,60 @@ fn make_register<'a>(
         .map(|l| (species_tree.name(l).expect("Found nameless leaf in species tree").to_owned(), l))
         .collect::<HashMap<_, _>>();
 
+    let meta_genes = genes
+        .iter()
+        .map(|g_id| book.get(g_id))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .sorted_by_cached_key(|g| (g.species.clone(), g.chr.clone(), g.pos))
+        .fold(vec![], |mut ax, g| {
+            if ax.is_empty() {
+                ax.push(vec![g]);
+            } else {
+                // let last = ax.last().unwrap().last().unwrap();
+                // if g.species == last.species && g.chr == last.chr && g.family == last.family {
+                let same_last = g.left_landscape.last().map(|f| *f == g.family).unwrap_or(false);
+                if same_last {
+                    ax.last_mut().unwrap().push(g);
+                } else {
+                    ax.push(vec![g])
+                }
+            }
+            ax
+        })
+        .into_iter()
+        .map(|g| {
+            if g.len() == 1 {
+                Gene::Single(g[0].id.to_owned())
+            } else {
+                Gene::Tandem(g.into_iter().map(|x| x.id).collect())
+            }
+        })
+        .collect::<Vec<_>>();
+
     info!("Storing gene data");
-    let landscape_sizes = proteins
+    let landscape_sizes = meta_genes
         .iter()
         .map(|p| {
-            book.get(p)
-                .map(|x| x.landscape.len())
+            book.get(p.id())
+                .map(|x| x.landscape().count())
                 .map_err(|_| RuntimeError::IdNotFound(p.to_string()).into())
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let mut core = proteins
+    let mut core = meta_genes
         .iter()
         .enumerate()
         .filter_map(|(i, _)| if landscape_sizes[i] > CORE_THRESHOLD { Some(i) } else { None })
         .collect::<Vec<_>>();
     if core.is_empty() {
         warn!("Core is empty; using all non-solo instead");
-        core = (0..proteins.len()).filter(|&p| landscape_sizes[p] > 1).collect::<Vec<_>>();
+        core = (0..meta_genes.len()).filter(|&p| landscape_sizes[p] > 1).collect::<Vec<_>>();
     }
-    let species = proteins
+    let species = meta_genes
         .iter()
         .map(|p| {
-            book.get(p).map_err(|_| RuntimeError::IdNotFound(p.to_owned()).into()).and_then(
+            book.get(p.id()).map_err(|_| RuntimeError::IdNotFound(p.to_string()).into()).and_then(
                 |protein| {
                     species2id.get(&protein.species).cloned().ok_or_else(|| {
                         RuntimeError::SpeciesNotFound(protein.species.to_owned()).into()
@@ -273,7 +349,7 @@ fn make_register<'a>(
         .collect::<Result<Vec<SpeciesID>>>()?;
     let all_species = HashSet::from_iter(species.iter().cloned());
 
-    let extended = proteins
+    let extended = meta_genes
         .iter()
         .enumerate()
         .filter_map(|(i, _)| {
@@ -287,11 +363,13 @@ fn make_register<'a>(
         .difference(&HashSet::<GeneID>::from_iter(core.iter().copied()))
         .copied()
         .collect::<Vec<_>>();
-    let solos = Vec::from_iter((0..proteins.len()).filter(|&p| landscape_sizes[p] == 1));
+
+    let solos = Vec::from_iter((0..meta_genes.len()).filter(|&p| landscape_sizes[p] == 1));
     let register = Register {
+        real_size: genes.len(),
         landscape_size: landscape_sizes,
         core,
-        genes: proteins.to_owned(),
+        genes: meta_genes,
         species,
         all_species,
         synteny,
@@ -505,7 +583,7 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
         .collect::<HashMap<_, _>>();
 
     for id in extended.iter() {
-        let log = ["ENSNSUP00000004150"].contains(&register.genes[*id].as_str());
+        let log = ["ENSNSUP00000004150"].contains(&register.genes[*id].to_string().as_str());
 
         let mut candidate_clusters = t
             .nodes()
@@ -598,7 +676,7 @@ fn grow_duplication(
             "ENSSSAP00000087432",
             "ENSSTUP00000100855",
         ]
-        .contains(&s.as_str())
+        .contains(&s.to_string().as_str())
     });
     if log {
         dbg!(seed_species);
@@ -853,7 +931,8 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
             f.sort_by_cached_key(|d| d.content.iter().unique_by(|g| register.species[**g]).count());
 
             while let Some(d) = f.pop() {
-                let log = view(&register.genes, &d.content).any(|x| x == "ENSMSIP00000026938");
+                let log = view(&register.genes, &d.content)
+                    .any(|x| x.to_string() == "ENSMSIP00000026938");
                 if log {
                     println!("{} {}", register.genes[d.content[0]], register.species_name(d.root));
                 }
@@ -1047,7 +1126,10 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                     bb.1,
                     bb.2,
                     register.species_name(t[*b].tag),
-                    leaves[b].first().map(|g| register.genes[*g].as_str()).unwrap_or("EMPTY")
+                    leaves[b]
+                        .first()
+                        .map(|g| register.genes[*g].to_string())
+                        .unwrap_or("EMPTY".to_owned())
                 );
             }
         }
@@ -1089,7 +1171,10 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                     bb.1,
                     bb.2,
                     register.species_name(t[*b].tag),
-                    leaves[b].first().map(|g| register.genes[*g].as_str()).unwrap_or("EMPTY")
+                    leaves[b]
+                        .first()
+                        .map(|g| register.genes[*g].to_string())
+                        .unwrap_or("EMPTY".to_string())
                 );
             }
         }
@@ -1351,7 +1436,7 @@ fn reconcile_upstream(
     root
 }
 
-fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<PolytomicGeneTree> {
+fn do_family(id: &str, register: &mut Register, logs_root: &str) -> Result<PolytomicGeneTree> {
     info!("Optimizing threshold");
     let tt = find_threshold(register);
 
@@ -1400,6 +1485,8 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
     info!("Assembling final tree -- {} subtrees", tree[root].children.len());
 
     let root = make_final_tree(&mut tree, register);
+    expand_meta(&mut tree, register, root)?;
+
     info!("Done.");
     File::create(&format!("{}/{}_reconciled.nwk", &logs_root, id))?.write_all(
         tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)).as_bytes(),
@@ -1419,7 +1506,7 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
         tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)).as_bytes(),
     )?;
 
-    if register.size() != tree.descendant_leaves(root).len() {
+    if register.real_size() != tree.descendant_leaves(root).len() {
         error!(
             "Gene mismatch: expected {}, found {}",
             register.size(),
@@ -1432,7 +1519,7 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
                 warn!("Double: {}", register.genes[gs[0]]);
             }
         }
-        let mine = HashSet::<String>::from_iter(
+        let mine = HashSet::<_>::from_iter(
             tree.descendant_leaves(root).iter().map(|l| register.genes[*l].to_owned()),
         );
         let others = HashSet::from_iter(register.genes.iter().cloned());
@@ -1474,7 +1561,7 @@ pub fn do_file(
     let logs_root = format!("{}/{}/", logs, id);
     std::fs::create_dir_all(&logs_root)?;
     let now = Instant::now();
-    let register = make_register(
+    let mut register = make_register(
         id,
         family,
         &GeneBook::cached(db_file, window, "id", family)?,
@@ -1482,7 +1569,7 @@ pub fn do_file(
         syntenies,
         divergences,
     )?;
-    let out_tree = do_family(id, &register, &logs_root)?;
+    let out_tree = do_family(id, &mut register, &logs_root)?;
     info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
     if let Some(ref mut timings) = timings {
         timings.write_all(
@@ -1491,4 +1578,44 @@ pub fn do_file(
     }
 
     Ok(out_tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)))
+}
+
+fn expand_meta(t: &mut PolytomicGeneTree, r: &mut Register, root: usize) -> Result<()> {
+    fn rec_graft(t: &mut PolytomicGeneTree, root: usize, xs: &[usize]) {
+        assert!(t[root].content.is_empty());
+        // assert!(t[root].children.is_empty());
+        if xs.len() > 2 {
+            let _leaf = t.add_node(&[xs[0]], t[root].tag, Some(root));
+            let rest = t.add_node(&[], t[root].tag, Some(root));
+            rec_graft(t, rest, &xs[1..]);
+        } else {
+            let _ = t.add_node(xs, t[root].tag, Some(root));
+        }
+    }
+
+    let leaves =
+        t.descendants(root).into_iter().filter(|n| t[*n].children.is_empty()).collect_vec();
+    for n in leaves.into_iter() {
+        let genes = t[n].content.clone();
+        if !genes.is_empty() {
+            assert!(genes.len() == 1);
+            let gene = &r.genes[genes[0]].clone();
+            match gene {
+                Gene::Tandem(xs) => {
+                    let xs_ids = xs
+                        .iter()
+                        .map(|name| {
+                            let id = r.genes.len();
+                            r.genes.push(Gene::Single(name.to_owned()));
+                            id
+                        })
+                        .collect_vec();
+                    t[n].content.clear();
+                    rec_graft(t, n, &xs_ids);
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
 }

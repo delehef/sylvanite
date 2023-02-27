@@ -177,7 +177,7 @@ fn main() -> Result<()> {
             families,
         } => {
             if let Some(gffs) = gffs {
-                syntesuite::dbmaker::db_from_gffs(
+                syntesuite::dbmaker::db_from_files(
                     &families,
                     &gffs,
                     &outfile,
