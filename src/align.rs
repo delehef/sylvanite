@@ -1,4 +1,6 @@
 use std::cmp::*;
+
+use smallvec::SmallVec;
 pub const MIN_INFORMATIVE_SYNTENY: usize = 0;
 
 const T: usize = 10000;
@@ -20,7 +22,7 @@ where
     let h = s2.len() + 1;
 
     let mut m = Vec::<i16>::with_capacity(w * h);
-    unsafe { m.set_len(m.capacity()) }
+    unsafe { m.set_len(m.capacity()) } // we will never read something we didn't write before
     let mut max_score = 0;
     for m_i in m.iter_mut().take(w) {
         *m_i = 0;
@@ -54,7 +56,7 @@ where
     max_score as f32 / normalizer(s1.len(), s2.len())
 }
 
-type Path = Vec<(usize, Option<usize>)>;
+type Path = SmallVec<[(usize, Option<usize>); 32]>;
 type Weights = Vec<i16>;
 fn score_path(path: &Path, w1: &Weights, w2: &Weights) -> f32 {
     const GAP_PENALTY: i16 = 0;
@@ -113,7 +115,7 @@ fn thread<T1, T2, V>(
         let matches = &matches[i];
         let m = matches[0];
         paths.iter_mut().for_each(|path| {
-            if path.iter().any(|p| p.1.is_some() && p.1.unwrap() == m) {
+            if path.iter().any(|p| if let Some(p1) = p.1 { p1 == m } else { false }) {
                 path.push((i, None))
             } else {
                 path.push((i, Some(m)))
@@ -125,6 +127,7 @@ fn thread<T1, T2, V>(
             for &m in matches[1..].iter() {
                 for k in 0..old_paths {
                     if !paths[k].iter().any(|p| p.1.is_some() && p.1.unwrap() == m) {
+                        // TODO use index magic to share common parts
                         let mut new_path = paths[k].clone();
                         if let Some(l) = new_path.last_mut() {
                             *l = (i, Some(m));
@@ -191,17 +194,16 @@ where
     }
 
     let start = (0..s1.len()).find(|&i| !matches[i].is_empty()).unwrap();
-    let mut paths = matches[start]
+    let mut paths: Vec<Path> = matches[start]
         .iter()
-        .map(|&j| vec![(start, Some(j))])
+        .map(|&j| {
+            let mut r = SmallVec::<_>::new();
+            r.push((start, Some(j)));
+            r
+        })
         .collect::<Vec<_>>();
     thread(start + 1, &mut paths, &matches, &s1, &s2, &w1, &w2);
-    (paths
-        .iter()
-        .map(|p| (2. * score_path(p, &w1, &w2)) as i32)
-        .max()
-        .unwrap() as f32
-        / 2.0)
+    (paths.iter().map(|p| (2. * score_path(p, &w1, &w2)) as i32).max().unwrap() as f32 / 2.0)
         / normalizer(s1_.as_ref().len(), s2_.as_ref().len())
 }
 
@@ -219,11 +221,7 @@ where
         0.0
     } else {
         let dir = align_sw(&s1, &s2, normalizer);
-        let rev = align_sw(
-            s1,
-            s2.as_ref().iter().copied().rev().collect::<Vec<_>>(),
-            normalizer,
-        );
+        let rev = align_sw(s1, s2.as_ref().iter().copied().rev().collect::<Vec<_>>(), normalizer);
         dir.max(rev)
     }
 }
