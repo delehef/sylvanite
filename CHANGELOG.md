@@ -2,11 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.3] - 2023-03-16
+
+### Features
+
+- Make tandem compression/fanout available under --merge-tandems
+
+### Miscellaneous Tasks
+
+- Update dependencies
+
+### Performance
+
+- Use smallvec to greatly spare allocations
+
+### Refactor
+
+- Rename proteins to genes
+
 ## [1.5.2] - 2023-01-30
 
 ### Bug Fixes
 
 - Do not output internal data
+
+### Miscellaneous Tasks
+
+- Release sylvanite version 1.5.2
 
 ## [1.5.1] - 2023-01-23
 
