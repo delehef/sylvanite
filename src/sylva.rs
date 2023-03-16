@@ -32,20 +32,20 @@ fn round(x: f32, d: i8) -> f32 {
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 enum Gene {
-    Single(String),
-    Tandem(Vec<String>),
+    Single(String, usize),
+    Tandem(Vec<String>, usize),
 }
 impl Gene {
     fn to_string(&self) -> String {
         match self {
-            Gene::Single(name) => name.clone(),
-            Gene::Tandem(xs) => xs.join("-"),
+            Gene::Single(name, _) => name.clone(),
+            Gene::Tandem(xs, _) => xs.join("-"),
         }
     }
     fn id(&self) -> &str {
         match self {
-            Gene::Single(p) => p,
-            Gene::Tandem(ps) => &ps[0],
+            Gene::Single(p, _) => p,
+            Gene::Tandem(ps, _) => &ps[0],
         }
     }
 }
@@ -201,14 +201,14 @@ impl<'st> Register<'st> {
 
     pub fn make_label(&self, x: GeneID) -> String {
         match &self.genes[x] {
-            Gene::Single(n) => {
+            Gene::Single(n, s) => {
                 format!(
                     "{}[&&NHX:S={}]",
                     n,
-                    self.species_name(self.species.get(x).cloned().unwrap_or(0)) // TODO
+                    self.species_name(*s) // TODO
                 )
             }
-            Gene::Tandem(xs) => xs[0].to_owned(),
+            Gene::Tandem(xs, _) => xs[0].to_owned(),
         }
     }
 }
@@ -315,10 +315,11 @@ fn make_register<'a>(
         })
         .into_iter()
         .map(|g| {
+            let species_id = *species2id.get(&g[0].species).unwrap();
             if g.len() == 1 {
-                Gene::Single(g[0].id.to_owned())
+                Gene::Single(g[0].id.to_owned(), species_id)
             } else {
-                Gene::Tandem(g.into_iter().map(|x| x.id).collect())
+                Gene::Tandem(g.into_iter().map(|x| x.id).collect(), species_id)
             }
         })
         .collect::<Vec<_>>();
@@ -1030,12 +1031,12 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &mut Register, root: usize) -> Resu
             assert!(genes.len() == 1);
             let gene = &r.genes[genes[0]].clone();
             match gene {
-                Gene::Tandem(xs) => {
+                Gene::Tandem(xs, s) => {
                     let xs_ids = xs
                         .iter()
                         .map(|name| {
                             let id = r.genes.len();
-                            r.genes.push(Gene::Single(name.to_owned()));
+                            r.genes.push(Gene::Single(name.to_owned(), *s));
                             id
                         })
                         .collect_vec();
@@ -1634,8 +1635,8 @@ pub fn do_file(
         out_tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)),
     )?;
     let out_tree = x.get_mut(0).unwrap();
-    chainsaw::annotate_duplications(out_tree, &species_tree, false);
     chainsaw::annotate_mrcas(out_tree, &species_tree)?;
+    chainsaw::annotate_duplications(out_tree, &species_tree, false);
 
     Ok(Newick::to_newick(out_tree))
 }
