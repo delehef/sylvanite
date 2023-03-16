@@ -23,6 +23,7 @@ rayon = "1.5"
 smallvec = "1.10.0"
 syntesuite = "0.2"
 thiserror = "1"
+chainsaw = "1.11"
 
 [package.metadata.release]
 tag-prefix = ""

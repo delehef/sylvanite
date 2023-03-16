@@ -107,6 +107,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "chainsaw"
+version = "1.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef43dc7b33945ef205c320e850f1ab8828d5af080577c4a2287ec1d20f90b250"
+dependencies = [
+ "anyhow",
+ "clap",
+ "itertools",
+ "newick",
+ "rusqlite",
+ "syntesuite 0.1.0",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -874,6 +888,7 @@ dependencies = [
  "anyhow",
  "atty",
  "buche",
+ "chainsaw",
  "clap",
  "clap-verbosity-flag",
  "colored",
@@ -884,7 +899,7 @@ dependencies = [
  "ordered-float",
  "rayon",
  "smallvec",
- "syntesuite",
+ "syntesuite 0.2.1",
  "thiserror",
 ]
 
@@ -897,6 +912,22 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "syntesuite"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b46f233aba22b0d998567f3e00200cbde893648ae85ae7f45a73bfa64f9684e"
+dependencies = [
+ "anyhow",
+ "colored",
+ "flate2",
+ "log",
+ "petname",
+ "regex",
+ "rusqlite",
+ "thiserror",
 ]
 
 [[package]]

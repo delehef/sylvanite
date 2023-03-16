@@ -267,6 +267,7 @@ fn make_register<'a>(
     species_tree: &'a NewickTree,
     syntenies: &str,
     divergences: &str,
+    merge_tandems: bool,
 ) -> Result<Register<'a>> {
     info!("Building register");
     info!("Parsing synteny matrix");
@@ -292,19 +293,25 @@ fn make_register<'a>(
         .into_iter()
         .sorted_by_cached_key(|g| (g.species.clone(), g.chr.clone(), g.pos))
         .fold(vec![], |mut ax, g| {
-            if ax.is_empty() {
-                ax.push(vec![g]);
-            } else {
-                // let last = ax.last().unwrap().last().unwrap();
-                // if g.species == last.species && g.chr == last.chr && g.family == last.family {
-                let same_last = g.left_landscape.last().map(|f| *f == g.family).unwrap_or(false);
-                if same_last {
-                    ax.last_mut().unwrap().push(g);
-                } else {
-                    ax.push(vec![g])
+            if merge_tandems {
+                {
+                    if ax.is_empty() {
+                        ax.push(vec![g]);
+                    } else {
+                        let same_last =
+                            g.left_landscape.last().map(|f| *f == g.family).unwrap_or(false);
+                        if same_last {
+                            ax.last_mut().unwrap().push(g);
+                        } else {
+                            ax.push(vec![g])
+                        }
+                    }
+                    ax
                 }
+            } else {
+                ax.push(vec![g]);
+                ax
             }
-            ax
         })
         .into_iter()
         .map(|g| {
@@ -1002,6 +1009,46 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
     }
 }
 
+fn expand_meta(t: &mut PolytomicGeneTree, r: &mut Register, root: usize) -> Result<()> {
+    fn rec_graft(t: &mut PolytomicGeneTree, root: usize, xs: &[usize]) {
+        assert!(t[root].content.is_empty());
+        // assert!(t[root].children.is_empty());
+        if xs.len() > 2 {
+            let _leaf = t.add_node(&[xs[0]], t[root].tag, Some(root));
+            let rest = t.add_node(&[], t[root].tag, Some(root));
+            rec_graft(t, rest, &xs[1..]);
+        } else {
+            let _ = t.add_node(xs, t[root].tag, Some(root));
+        }
+    }
+
+    let leaves =
+        t.descendants(root).into_iter().filter(|n| t[*n].children.is_empty()).collect_vec();
+    for n in leaves.into_iter() {
+        let genes = t[n].content.clone();
+        if !genes.is_empty() {
+            assert!(genes.len() == 1);
+            let gene = &r.genes[genes[0]].clone();
+            match gene {
+                Gene::Tandem(xs) => {
+                    let xs_ids = xs
+                        .iter()
+                        .map(|name| {
+                            let id = r.genes.len();
+                            r.genes.push(Gene::Single(name.to_owned()));
+                            id
+                        })
+                        .collect_vec();
+                    t[n].content.clear();
+                    rec_graft(t, n, &xs_ids);
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
 fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
     t.cache_descendants(1);
     let mut todo = t[1]
@@ -1531,14 +1578,19 @@ fn do_family(id: &str, register: &mut Register, logs_root: &str) -> Result<Polyt
     Ok(tree)
 }
 
+pub struct Settings {
+    pub logs: String,
+    pub window: usize,
+    pub merge_tandems: bool,
+}
+
 pub fn do_file(
     filename: &str,
-    logs: &str,
     speciestree_file: &str,
     db_file: &str,
-    window: usize,
     syntenies: &str,
     divergences: &str,
+    settings: Settings,
     timings: &mut Option<File>,
 ) -> Result<String> {
     let mut species_tree = newick::one_from_filename(&speciestree_file)
@@ -1558,16 +1610,17 @@ pub fn do_file(
         .ok_or_else(|| errors::FileError::InvalidFilename(format!("{:?}", filename)))?;
 
     info!("===== Family {} -- {} proteins =====", id, family.len());
-    let logs_root = format!("{}/{}/", logs, id);
+    let logs_root = format!("{}/{}/", &settings.logs, id);
     std::fs::create_dir_all(&logs_root)?;
     let now = Instant::now();
     let mut register = make_register(
         id,
         family,
-        &GeneBook::cached(db_file, window, "id", family)?,
+        &GeneBook::cached(db_file, settings.window, "id", family)?,
         &species_tree,
         syntenies,
         divergences,
+        settings.merge_tandems,
     )?;
     let out_tree = do_family(id, &mut register, &logs_root)?;
     info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
@@ -1577,45 +1630,12 @@ pub fn do_file(
         )?;
     }
 
-    Ok(out_tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)))
-}
+    let mut x = newick::from_string(
+        out_tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)),
+    )?;
+    let out_tree = x.get_mut(0).unwrap();
+    chainsaw::annotate_duplications(out_tree, &species_tree, false);
+    chainsaw::annotate_mrcas(out_tree, &species_tree)?;
 
-fn expand_meta(t: &mut PolytomicGeneTree, r: &mut Register, root: usize) -> Result<()> {
-    fn rec_graft(t: &mut PolytomicGeneTree, root: usize, xs: &[usize]) {
-        assert!(t[root].content.is_empty());
-        // assert!(t[root].children.is_empty());
-        if xs.len() > 2 {
-            let _leaf = t.add_node(&[xs[0]], t[root].tag, Some(root));
-            let rest = t.add_node(&[], t[root].tag, Some(root));
-            rec_graft(t, rest, &xs[1..]);
-        } else {
-            let _ = t.add_node(xs, t[root].tag, Some(root));
-        }
-    }
-
-    let leaves =
-        t.descendants(root).into_iter().filter(|n| t[*n].children.is_empty()).collect_vec();
-    for n in leaves.into_iter() {
-        let genes = t[n].content.clone();
-        if !genes.is_empty() {
-            assert!(genes.len() == 1);
-            let gene = &r.genes[genes[0]].clone();
-            match gene {
-                Gene::Tandem(xs) => {
-                    let xs_ids = xs
-                        .iter()
-                        .map(|name| {
-                            let id = r.genes.len();
-                            r.genes.push(Gene::Single(name.to_owned()));
-                            id
-                        })
-                        .collect_vec();
-                    t[n].content.clear();
-                    rec_graft(t, n, &xs_ids);
-                }
-                _ => {}
-            }
-        }
-    }
-    Ok(())
+    Ok(Newick::to_newick(out_tree))
 }

@@ -122,6 +122,10 @@ enum Commands {
         /// if set, do not overwrite already existing files
         #[clap(long)]
         no_overwrite: bool,
+
+        /// if set, merge tandem genes together and span them post-hoc
+        #[clap(long)]
+        merge_tandems: bool,
     },
 }
 
@@ -201,6 +205,7 @@ fn main() -> Result<()> {
             timings,
             no_overwrite,
             database,
+            merge_tandems,
         } => {
             let logs = "logs";
             let mut timings = if let Some(timings) = timings {
@@ -257,14 +262,18 @@ fn main() -> Result<()> {
                 if out_file.exists() && no_overwrite {
                     info!("{} already exists; skipping", out_file.display());
                 } else {
+                    let settings = sylva::Settings {
+                        logs: logs.to_string(),
+                        window: args.window,
+                        merge_tandems,
+                    };
                     let tree = sylva::do_file(
                         &f,
-                        logs,
                         &species_tree,
                         &database,
-                        args.window,
                         &syntenies,
                         &divergences,
+                        settings,
                         &mut timings,
                     )?;
                     std::fs::File::create(out_file)?.write_all(tree.as_bytes())?
