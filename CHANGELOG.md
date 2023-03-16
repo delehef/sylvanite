@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.4] - 2023-03-16
+
+### Miscellaneous Tasks
+
+- Downgrade dependencies for Guix
+
 ## [1.5.3] - 2023-03-16
 
 ### Features
@@ -11,6 +17,7 @@ All notable changes to this project will be documented in this file.
 ### Miscellaneous Tasks
 
 - Update dependencies
+- Release sylvanite version 1.5.3
 
 ### Performance
 
