@@ -24,6 +24,8 @@ smallvec = "1.9"
 syntesuite = "0.2"
 thiserror = "1"
 chainsaw = "1.11"
+identity-hash = "0.1.0"
+either = "1.6"
 
 [package.metadata.release]
 tag-prefix = ""

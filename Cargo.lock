@@ -475,6 +475,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "identity-hash"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfdd7caa900436d8f13b2346fe10257e0c05c1f1f9e351f4f5d57c03bd5f45da"
+
+[[package]]
 name = "indexmap"
 version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -892,6 +898,8 @@ dependencies = [
  "clap",
  "clap-verbosity-flag",
  "colored",
+ "either",
+ "identity-hash",
  "indicatif",
  "itertools",
  "log",

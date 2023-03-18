@@ -2,6 +2,8 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Index, IndexMut};
 
+use either::Either;
+
 pub trait Matrix<T>: Index<(usize, usize), Output = T> {
     fn is_square(&self) -> bool;
     fn nrows(&self) -> usize;
@@ -40,7 +42,15 @@ impl<T> VecMatrix<T> {
     pub fn masked<'a>(&'a self, is: &'a [usize], js: &'a [usize]) -> MaskedMatrix<'a, T> {
         assert!(is.iter().all(|&i| i < self.r));
         assert!(js.iter().all(|&j| j < self.c));
-        MaskedMatrix { m: self, is, js }
+        MaskedMatrix { m: self, is: Either::Left(is), js: Either::Left(js) }
+    }
+
+    pub fn masked_from_iter<'a>(
+        &'a self,
+        is: impl Iterator<Item = usize>,
+        js: impl Iterator<Item = usize>,
+    ) -> MaskedMatrix<'a, T> {
+        MaskedMatrix { m: self, is: Either::Right(is.collect()), js: Either::Right(js.collect()) }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
@@ -70,11 +80,7 @@ impl<T> Matrix<T> for VecMatrix<T> {
 
 impl<T: Clone> VecMatrix<T> {
     pub fn with_elem(r: usize, c: usize, x: T) -> VecMatrix<T> {
-        VecMatrix {
-            m: vec![x; r * c],
-            r,
-            c,
-        }
+        VecMatrix { m: vec![x; r * c], r, c }
     }
 }
 
@@ -119,27 +125,29 @@ impl<T> IndexMut<(usize, usize)> for VecMatrix<T> {
 
 impl<T: Clone> std::clone::Clone for VecMatrix<T> {
     fn clone(&self) -> Self {
-        VecMatrix {
-            c: self.c,
-            r: self.r,
-            m: self.m.clone(),
-        }
+        VecMatrix { c: self.c, r: self.r, m: self.m.clone() }
     }
 }
 
 pub struct MaskedMatrix<'a, T> {
     m: &'a dyn Matrix<T>,
-    is: &'a [usize],
-    js: &'a [usize],
+    is: Either<&'a [usize], Vec<usize>>,
+    js: Either<&'a [usize], Vec<usize>>,
 }
 
 impl<'a, T> MaskedMatrix<'a, T> {
     pub fn is(&self) -> &[usize] {
-        self.is
+        match &self.is {
+            Either::Left(is) => is,
+            Either::Right(is) => is.as_slice(),
+        }
     }
 
     pub fn js(&self) -> &[usize] {
-        self.js
+        match &self.js {
+            Either::Left(js) => js,
+            Either::Right(js) => js.as_slice(),
+        }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
@@ -225,4 +233,15 @@ where
     <T as Index<usize>>::Output: Sized,
 {
     is.into_iter().map(|i| &v[*i])
+}
+
+pub fn view_cloned<'a, T: Index<usize> + 'a, I: IntoIterator<Item = &'a usize> + 'a>(
+    v: &'a T,
+    is: I,
+) -> impl Clone + Iterator<Item = <T as Index<usize>>::Output> + 'a
+where
+    <T as Index<usize>>::Output: Sized + Clone,
+    <I as IntoIterator>::IntoIter: Clone,
+{
+    is.into_iter().map(move |i| v[*i].clone())
 }

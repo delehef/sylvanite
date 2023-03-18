@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use identity_hash::{IntMap, IntSet};
 use std::collections::HashMap;
 
 pub type NodeID = usize;
@@ -12,7 +13,7 @@ pub struct Node<T, S> {
 pub struct PTree<T: Clone, S> {
     current_id: usize,
     nodes: HashMap<NodeID, Node<T, S>>,
-    descendants_cache: HashMap<NodeID, Vec<NodeID>>,
+    descendants_cache: IntMap<NodeID, IntSet<NodeID>>,
 }
 
 impl<T: Clone, S> std::ops::Index<usize> for PTree<T, S> {
@@ -27,12 +28,50 @@ impl<T: Clone, S> std::ops::IndexMut<usize> for PTree<T, S> {
     }
 }
 
-impl<T: Clone, S> PTree<T, S> {
+impl<T: Clone + Eq, S> PTree<T, S> {
     pub fn new() -> Self {
-        PTree {
-            current_id: 0,
-            nodes: HashMap::new(),
-            descendants_cache: HashMap::new(),
+        PTree { current_id: 0, nodes: HashMap::new(), descendants_cache: Default::default() }
+    }
+
+    fn add_to_cache(&mut self, n: NodeID, new: impl IntoIterator<Item = NodeID> + Clone) {
+        if let Some(descs) = self.descendants_cache.get_mut(&n) {
+            for n in new.clone() {
+                descs.insert(n);
+            }
+        }
+        if let Some(parent) = self[n].parent {
+            self.add_to_cache(parent, new.clone());
+        }
+    }
+
+    fn rm_from_cache(&mut self, n: NodeID, old: impl IntoIterator<Item = NodeID> + Clone) {
+        if let Some(descs) = self.descendants_cache.get_mut(&n) {
+            for n in old.clone() {
+                descs.remove(&n);
+            }
+        }
+        if let Some(parent) = self[n].parent {
+            self.rm_from_cache(parent, old.clone());
+        }
+    }
+
+    fn add_to_cache_and_children(&mut self, n: NodeID) {
+        if let Some(parent) = self[n].parent {
+            self.add_to_cache(parent, [n]);
+            self.add_to_cache(
+                parent,
+                self.descendants_cache[&n].iter().cloned().collect::<Vec<_>>(),
+            );
+        }
+    }
+
+    fn rm_from_cache_and_children(&mut self, n: NodeID) {
+        if let Some(parent) = self[n].parent {
+            self.rm_from_cache(parent, [n]);
+            self.rm_from_cache(
+                parent,
+                self.descendants_cache[&n].iter().cloned().collect::<Vec<_>>(),
+            );
         }
     }
 
@@ -43,15 +82,12 @@ impl<T: Clone, S> PTree<T, S> {
         assert!(parent.is_none() || self.nodes.contains_key(&parent.unwrap()));
         self.nodes.insert(
             id,
-            Node {
-                children: Vec::with_capacity(2),
-                content: content.to_vec(),
-                parent,
-                tag,
-            },
+            Node { children: Vec::with_capacity(2), content: content.to_vec(), parent, tag },
         );
+        self.descendants_cache.insert(id, Default::default());
         if let Some(parent) = parent {
             self[parent].children.push(id);
+            self.add_to_cache(parent, [id]);
         }
         id
     }
@@ -64,21 +100,19 @@ impl<T: Clone, S> PTree<T, S> {
         assert!(self.nodes[&n].parent.is_none());
         assert!(!self.nodes[&target].children.contains(&n));
         self.nodes.get_mut(&n).unwrap().parent = Some(target);
-        self.nodes.get_mut(&target).unwrap().children.push(n)
+        self.nodes.get_mut(&target).unwrap().children.push(n);
+        self.add_to_cache_and_children(n)
     }
 
     pub fn unplug(&mut self, n: NodeID) {
         let parent = self.nodes[&n].parent;
         assert!(parent.is_none() || self.nodes[&parent.unwrap()].children.contains(&n));
 
-        self.nodes.get_mut(&n).unwrap().parent = None;
         if let Some(parent) = parent {
-            self.nodes
-                .get_mut(&parent)
-                .unwrap()
-                .children
-                .retain(|nn| *nn != n);
+            self.nodes.get_mut(&parent).unwrap().children.retain(|nn| *nn != n);
+            self.rm_from_cache_and_children(n);
         }
+        self.nodes.get_mut(&n).unwrap().parent = None;
     }
 
     pub fn unplug_many(&mut self, parent: NodeID, ns: &[NodeID]) {
@@ -90,6 +124,7 @@ impl<T: Clone, S> PTree<T, S> {
 
     pub fn delete_node(&mut self, n: NodeID) {
         assert!(self.nodes.contains_key(&n));
+        self.rm_from_cache_and_children(n);
         for c in self[n].children.clone().into_iter() {
             self.delete_node(c);
         }
@@ -101,76 +136,43 @@ impl<T: Clone, S> PTree<T, S> {
         ns.iter().for_each(|&n| self.delete_node(n));
     }
 
-    pub fn merge_nodes(&mut self, merger: NodeID, merged: NodeID, f: &dyn Fn(&mut Vec<T>, &[T])) {
-        assert!(self.nodes.contains_key(&merger));
-        assert!(self.nodes.contains_key(&merged));
+    // pub fn merge_nodes(&mut self, merger: NodeID, merged: NodeID, f: &dyn Fn(&mut Vec<T>, &[T])) {
+    //     assert!(self.nodes.contains_key(&merger));
+    //     assert!(self.nodes.contains_key(&merged));
 
-        self.nodes
-            .values_mut()
-            .filter(|v| v.parent.is_some() && v.parent.unwrap() == merged)
-            .for_each(|v| v.parent = Some(merger));
+    //     self.nodes
+    //         .values_mut()
+    //         .filter(|v| v.parent.is_some() && v.parent.unwrap() == merged)
+    //         .for_each(|v| v.parent = Some(merger));
 
-        let merged_children = self.nodes[&merged].children.to_vec();
-        self.nodes
-            .get_mut(&merger)
-            .unwrap()
-            .children
-            .extend_from_slice(&merged_children);
+    //     let merged_children = self.nodes[&merged].children.to_vec();
+    //     self.nodes.get_mut(&merger).unwrap().children.extend_from_slice(&merged_children);
 
-        let merged_content = &self.nodes[&merged].content.clone();
-        f(
-            &mut self.nodes.get_mut(&merger).unwrap().content,
-            merged_content,
-        );
-        self.delete_node(merged);
-    }
+    //     let merged_content = &self.nodes[&merged].content.clone();
+    //     f(&mut self.nodes.get_mut(&merger).unwrap().content, merged_content);
+    //     self.delete_node(merged);
+    // }
 
     pub fn move_node(&mut self, n: NodeID, dest: NodeID) {
         self.unplug(n);
         self.plug(dest, n);
     }
 
-    fn rec_descendants(&self, i: NodeID, ax: &mut Vec<NodeID>) {
+    fn rec_descendants(&self, i: NodeID, ax: &mut IntSet<NodeID>) {
         for j in &self[i].children {
-            ax.push(*j);
+            ax.insert(*j);
             self.rec_descendants(*j, ax)
         }
     }
 
-    pub fn descendants(&self, n: NodeID) -> Vec<NodeID> {
-        let mut r = Vec::with_capacity(self.nodes.len() / 2);
+    pub fn full_descendants(&self, n: NodeID) -> IntSet<NodeID> {
+        let mut r = Default::default();
         self.rec_descendants(n, &mut r);
         r
     }
 
-    pub fn cache_descendants(&mut self, from: NodeID) {
-        let mut me = from;
-        let todo = self.descendants(me);
-        self.descendants_cache.insert(me, todo.to_owned());
-        for n in todo {
-            self.descendants_cache.insert(n, self.descendants(n));
-        }
-        while let Some(parent) = self[me].parent {
-            self.descendants_cache
-                .insert(parent, self.descendants(parent));
-            me = parent;
-        }
-    }
-
-    pub fn cached_descendants(&self, n: NodeID) -> Option<&Vec<NodeID>> {
-        self.descendants_cache.get(&n)
-    }
-
-    fn rec_descendant_leaves(&self, i: NodeID, ax: &mut Vec<T>) {
-        ax.extend_from_slice(&self.nodes[&i].content);
-        for &j in &self.nodes[&i].children {
-            self.rec_descendant_leaves(j, ax)
-        }
-    }
-    pub fn descendant_leaves(&self, n: NodeID) -> Vec<T> {
-        let mut r = Vec::with_capacity(self.nodes.len() / 2);
-        self.rec_descendant_leaves(n, &mut r);
-        r
+    pub fn descendants(&self, n: NodeID) -> &IntSet<NodeID> {
+        &self.descendants_cache[&n]
     }
 
     pub fn topo_depth(&self, n: NodeID) -> usize {
@@ -191,12 +193,8 @@ impl<T: Clone, S> PTree<T, S> {
     ) -> String {
         let mut r = String::new();
 
-        let leaves = self.nodes[&i]
-            .content
-            .iter()
-            .map(|c| f_leaf(c))
-            .collect::<Vec<String>>()
-            .join(",");
+        let leaves =
+            self.nodes[&i].content.iter().map(|c| f_leaf(c)).collect::<Vec<String>>().join(",");
         let children = self.nodes[&i]
             .children
             .iter()
@@ -216,9 +214,11 @@ impl<T: Clone, S> PTree<T, S> {
 
         r
     }
+
     pub fn cardinal(&self, n: usize) -> usize {
         self[n].children.len() + self[n].content.len()
     }
+
     pub fn to_newick(&self, f_leaf: &dyn Fn(&T) -> String, f_tag: &dyn Fn(&S) -> String) -> String {
         let mut r = String::new();
 
@@ -233,6 +233,7 @@ impl<T: Clone, S> PTree<T, S> {
 
         r
     }
+
     pub fn to_newick_from(
         &self,
         i: usize,
@@ -248,15 +249,26 @@ impl<T: Clone, S> PTree<T, S> {
     }
 }
 
-impl<T: std::clone::Clone + std::fmt::Debug, S: std::fmt::Debug> PTree<T, S> {
+impl<S> PTree<usize, S> {
+    fn rec_descendant_leaves(&self, i: NodeID, ax: &mut IntSet<usize>) {
+        for l in &self.nodes[&i].content {
+            ax.insert(*l);
+        }
+        // ax.extend_from_slice(&self.nodes[&i].content);
+        for &j in &self.nodes[&i].children {
+            self.rec_descendant_leaves(j, ax)
+        }
+    }
+    pub fn descendant_leaves(&self, n: NodeID) -> IntSet<usize> {
+        let mut r = Default::default();
+        self.rec_descendant_leaves(n, &mut r);
+        r
+    }
+}
+
+impl<T: Clone + Eq + std::fmt::Debug, S: std::fmt::Debug> PTree<T, S> {
     fn rec_disp(&self, i: usize, depth: usize) {
-        println!(
-            "{}{}#{:?} > CHILDREN: {:?}",
-            " ".repeat(depth),
-            i,
-            self[i].tag,
-            self[i].children
-        );
+        println!("{}{}#{:?} > CHILDREN: {:?}", " ".repeat(depth), i, self[i].tag, self[i].children);
         println!("{}    |- CONTENT: {:?}", " ".repeat(depth), self[i].content);
 
         for j in self[i].children.iter() {
