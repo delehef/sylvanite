@@ -108,9 +108,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chainsaw"
-version = "1.11.2"
+version = "1.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07264c1f4df3c80c3a8458d0e8b9d41bb724b61a6aaa91da8fa6818f11b9a45b"
+checksum = "421431bb5637d33530b95fa6cbcb879065f4d0f0c092769dd887dbc2d45e8c6f"
 dependencies = [
  "anyhow",
  "clap",
@@ -587,9 +587,9 @@ dependencies = [
 
 [[package]]
 name = "newick"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d4d71856c583e7072d1810dc44f6f4a05142a2e75a85c9b3a7f036085d4fab7"
+checksum = "da06d77b2058031ce26e77f3a238c6345a5cf882256c0e09c90c0f2af41c30b4"
 dependencies = [
  "pest",
  "pest_derive",
@@ -877,9 +877,12 @@ checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
 
 [[package]]
 name = "sorbus"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c5af6777f5dcb157973b88d7aa18623af87b2f01183c14828719b11a43b1b42"
+checksum = "be15f752caedcce05edd052ab31b4d2f5aed6fdd9afeea5ca89fddb775cc1e9e"
+dependencies = [
+ "identity-hash",
+]
 
 [[package]]
 name = "strsim"
