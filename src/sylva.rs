@@ -525,12 +525,12 @@ fn remove_solos_clusters(t: &mut PolytomicGeneTree) -> Vec<NodeID> {
         .children
         .iter()
         .copied()
-        .filter(|&n| t[n].children.is_empty() && t[n].content.len() == 1)
+        .filter(|&n| t[n].children.is_empty() && t[n].content_len() == 1)
         .collect::<Vec<_>>();
     let r = solo_clusters
         .iter()
         .copied()
-        .flat_map(|n| t[n].content.iter())
+        .flat_map(|n| t[n].content_iter())
         .copied()
         .collect::<Vec<_>>();
     t.delete_nodes(&solo_clusters);
@@ -564,7 +564,7 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
         .map(|c| {
             (
                 c,
-                HashSet::<usize>::from_iter(t[c].content.iter().copied())
+                HashSet::<usize>::from_iter(t[c].content_iter().copied())
                     .intersection(&HashSet::from_iter(register.core.iter().copied()))
                     .copied()
                     .collect::<Vec<_>>(),
@@ -575,8 +575,8 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
         .nodes()
         .copied()
         .par_bridge()
-        .filter(|c| !t[*c].content.is_empty())
-        .map(|c| (c, register.elc(view_cloned(&register.species, &t[c].content))))
+        .filter(|c| !t[*c].content_is_empty())
+        .map(|c| (c, register.elc(clonable_view_cloned(&register.species, t[c].content_slice()))))
         .collect::<HashMap<_, _>>();
 
     for id in extended.iter() {
@@ -586,11 +586,11 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
             .nodes()
             .copied()
             .par_bridge()
-            .filter(|c| !t[*c].content.is_empty())
+            .filter(|c| !t[*c].content_is_empty())
             .map(|c| {
-                let c_content = &t[c].content;
+                let c_content = t[c].content_slice();
                 let delta_elc = register.elc(
-                    view_cloned(&register.species, c_content)
+                    clonable_view_cloned(&register.species, c_content)
                         .chain([register.species[*id]].iter().cloned()),
                 ) - cached_elcs[&c];
                 let divergence = round(register.divergence.masked(&[*id], c_content).min(), 2);
@@ -632,20 +632,25 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
                 let c = cc.1;
                 info!(
                     "    {:20} --> SYN: {:.2} DV: {:2.2} ΔELC: {}",
-                    register.genes[t[cc.0].content[0]], c.2, c.1, c.0,
+                    register.genes[t[cc.0].content_slice()[0]],
+                    c.2,
+                    c.1,
+                    c.0,
                 );
             }
         }
 
         if let Some(cluster) = candidate_clusters.first() {
             let parent = cluster.0;
-            t[parent].content.push(*id);
+            t.add_leave(parent, *id);
             t[parent].tag = register
                 .species_tree
-                .mrca(view_cloned(&register.species, &t[parent].content))
+                .mrca(clonable_view_cloned(&register.species, t[parent].content_slice()))
                 .unwrap();
-            cached_elcs
-                .insert(parent, register.elc(view_cloned(&register.species, &t[parent].content)));
+            cached_elcs.insert(
+                parent,
+                register.elc(clonable_view_cloned(&register.species, t[parent].content_slice())),
+            );
         }
     }
 }
@@ -839,7 +844,7 @@ fn create_duplications(
 ) -> Vec<Duplications> {
     let mut dups = Vec::new();
     let mut sources = HashMap::<SpeciesID, Vec<GeneID>>::new();
-    for i in &tree[reference].content {
+    for i in tree[reference].content_slice() {
         sources.entry(register.species[*i]).or_default().push(*i);
     }
 
@@ -916,15 +921,17 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
             -unique_species
         });
 
-        let cluster_mrca =
-            register.species_tree.mrca(view_cloned(&register.species, &t[i].content)).unwrap();
+        let cluster_mrca = register
+            .species_tree
+            .mrca(clonable_view_cloned(&register.species, t[i].content_slice()))
+            .unwrap();
         let my_owns = t[i]
-            .content
+            .content_slice()
             .iter()
             .copied()
             .filter(|g| dups.iter().flat_map(|ds| ds.iter()).all(|d| !d.content.contains(g)))
             .collect::<Vec<_>>();
-        t[i].content.clear();
+        t.clear_leaves(i);
         reconcile(t, &my_owns, register, Some(i), Some(cluster_mrca), true);
 
         for f in dups.iter_mut() {
@@ -952,7 +959,7 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
                                     .synteny
                                     .masked_from_iter(
                                         d.content.iter().cloned(),
-                                        leaves.iter().cloned(),
+                                        leaves.into_iter().cloned(),
                                     )
                                     .max(),
                             )
@@ -981,22 +988,17 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
                 let current_root = if let Some(root) = root_candidates.first() { *root } else { i };
 
                 // If the putative root is a leaf node, make it a non-leaf node
-                if !t[current_root].content.is_empty() {
+                if !t[current_root].content_is_empty() {
+                    let leaves = t[current_root].content_slice().to_vec();
+                    t.clear_leaves(current_root);
                     let _ = t.add_node(
-                        &t[current_root].content.clone(),
+                        &leaves,
                         register
                             .species_tree
-                            .mrca(
-                                t[current_root]
-                                    .content
-                                    .iter()
-                                    .map(|g| &register.species[*g])
-                                    .cloned(),
-                            )
+                            .mrca(leaves.iter().map(|g| &register.species[*g]).cloned())
                             .unwrap(),
                         Some(current_root),
                     );
-                    t[current_root].content.clear();
                 }
 
                 // If the putative root has a single child, we can reconcile directly in it
@@ -1025,7 +1027,7 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
 
 fn expand_meta(t: &mut PolytomicGeneTree, r: &mut Register, root: usize) -> Result<()> {
     fn rec_graft(t: &mut PolytomicGeneTree, root: usize, xs: &[usize]) {
-        assert!(t[root].content.is_empty());
+        assert!(t[root].content_is_empty());
         // assert!(t[root].children.is_empty());
         if xs.len() > 2 {
             let _leaf = t.add_node(&[xs[0]], t[root].tag, Some(root));
@@ -1039,9 +1041,9 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &mut Register, root: usize) -> Resu
     let leaves =
         t.descendants(root).iter().cloned().filter(|n| t[*n].children.is_empty()).collect_vec();
     for n in leaves.into_iter() {
-        let genes = t[n].content.clone();
+        let genes = t[n].content_slice().clone();
         if !genes.is_empty() {
-            assert!(genes.len() == 1);
+            assert_eq!(genes.len(), 1);
             let gene = &r.genes[genes[0]].clone();
             match gene {
                 Gene::Tandem(xs, s) => {
@@ -1053,7 +1055,7 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &mut Register, root: usize) -> Resu
                             id
                         })
                         .collect_vec();
-                    t[n].content.clear();
+                    t.clear_leaves(n);
                     rec_graft(t, n, &xs_ids);
                 }
                 _ => {}
@@ -1096,9 +1098,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
         let mut speciess = HashMap::new();
         speciess.insert(
             a,
-            view(&register.species, &t.descendant_leaves(a))
-                .copied()
-                .collect::<HashSet<SpeciesID>>(),
+            view_cloned(&register.species, t.descendant_leaves(a)).collect::<IntSet<SpeciesID>>(),
         );
         let mut context_nodes = HashMap::new();
         for i in &candidate_parents {
@@ -1129,7 +1129,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                 t.descendant_leaves(context_node)
                     .iter()
                     .map(|g| register.species[*g])
-                    .collect::<HashSet<_>>(),
+                    .collect::<IntSet<_>>(),
             );
         }
 
@@ -1244,34 +1244,25 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
             let parent = *cluster.0;
 
             if log {
-                println!("Parent: {}/{}", t[parent].content.len(), t[parent].children.len());
+                println!("Parent: {}/{}", t[parent].content_len(), t[parent].children.len());
             }
 
             // If the child is plugged on a completely empty subtree, it should replace it to lock its docking points
             if t.descendant_leaves(parent).is_empty() {
                 t.move_node(child, t[parent].parent.unwrap());
                 t.delete_node(parent);
-
-                // if *t.descendants(t[child].parent.unwrap())
-                //     != t.full_descendants(t[child].parent.unwrap())
-                // {
-                //     assert!(
-                //         *t.descendants(t[child].parent.unwrap())
-                //             == t.full_descendants(t[child].parent.unwrap())
-                //     );
-                // }
-                // t.cache_descendants(t[child].parent.unwrap());
             } else {
-                if !t[parent].content.is_empty() {
+                if !t[parent].content_is_empty() {
+                    let leaves = t[parent].content_slice().to_vec();
+                    t.clear_leaves(parent);
                     let _content = t.add_node(
-                        &t[parent].content.clone(),
+                        &leaves,
                         register
                             .species_tree
-                            .mrca(view_cloned(&register.species, &t[parent].content))
+                            .mrca(clonable_view_cloned(&register.species, &leaves))
                             .unwrap(),
                         Some(parent),
                     );
-                    t[parent].content.clear();
                 }
 
                 if t[parent].children.len() > 1 {
@@ -1283,15 +1274,6 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                 }
 
                 t.move_node(child, parent);
-                // if *t.descendants(parent) == t.full_descendants(parent) {
-                //     dbg!(t
-                //         .descendants(parent)
-                //         .symmetric_difference(&t.full_descendants(parent))
-                //         .collect::<Vec<_>>());
-                //     // dbg!(t.descendants(child));
-                //     // dbg!(parent);
-                //     assert!(*t.descendants(parent) == t.full_descendants(parent));
-                // }
             }
         }
     }
@@ -1306,11 +1288,11 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                 .filter(|o| *o != c)
                 .map(|o| {
                     OrderedFloat(-jaccard(
-                        &view(&register.species, t.descendant_leaves(*c).iter())
-                            .copied()
+                        &view(&register.species, t.descendant_leaves(*c))
+                            .cloned()
                             .collect::<HashSet<_>>(),
-                        &view(&register.species, t.descendant_leaves(*o).iter())
-                            .copied()
+                        &view(&register.species, t.descendant_leaves(*o))
+                            .cloned()
                             .collect::<HashSet<_>>(),
                     ))
                 })
@@ -1325,7 +1307,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
             root = t.add_node(&[], t[to_plug].tag, Some(node_alpha));
             t[node_alpha].tag = register
                 .species_tree
-                .mrca(view_cloned(&register.species, &t.descendant_leaves(node_alpha)))
+                .mrca(view_cloned(&register.species, t.descendant_leaves(node_alpha)))
                 .unwrap();
         } else {
             t.move_node(to_plug, root);
@@ -1334,24 +1316,16 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
         if !t.descendant_leaves(root).is_empty() {
             t[root].tag = register
                 .species_tree
-                .mrca(view_cloned(&register.species, &t.descendant_leaves(root)))
+                .mrca(view_cloned(&register.species, t.descendant_leaves(root)))
                 .unwrap();
         }
     }
 
-    assert!(t.descendant_leaves(1).is_empty());
+    assert!(t.full_descendant_leaves(1).is_empty());
     assert!(t[1].children.is_empty());
-    assert!(t[1].content.is_empty());
+    assert!(t[1].content_is_empty());
     t.delete_node(1);
 
-    for k in t.nodes().copied().collect::<Vec<_>>().iter() {
-        if !t.descendant_leaves(*k).is_empty() {
-            t[*k].tag = register
-                .species_tree
-                .mrca(view_cloned(&register.species, &t.descendant_leaves(*k)))
-                .unwrap();
-        }
-    }
     new_root
 }
 
@@ -1361,7 +1335,7 @@ fn prune_tree(tree: &mut PolytomicGeneTree, root: usize) {
         let todos = tree
             .nodes()
             .copied()
-            .filter(|&k| tree[k].children.is_empty() && tree[k].content.is_empty())
+            .filter(|&k| tree[k].children.is_empty() && tree[k].content_is_empty())
             .collect::<Vec<_>>();
         if todos.is_empty() {
             break;
@@ -1376,12 +1350,12 @@ fn prune_tree(tree: &mut PolytomicGeneTree, root: usize) {
         let todo = tree
             .nodes()
             .copied()
-            .find(|&k| tree[k].children.is_empty() && tree[k].content.len() == 1 && k != root);
+            .find(|&k| tree[k].children.is_empty() && tree[k].content_len() == 1 && k != root);
 
         if let Some(k) = todo {
-            let content = tree[k].content[0];
+            let content = tree[k].content_slice()[0];
             let parent = tree[k].parent.unwrap();
-            tree[parent].content.push(content);
+            tree.add_leave(parent, content);
             tree.delete_node(k);
         } else {
             break;
@@ -1394,10 +1368,12 @@ fn prune_tree(tree: &mut PolytomicGeneTree, root: usize) {
         let todo = tree
             .nodes()
             .copied()
-            .find(|&k| k != root && tree[k].children.len() == 1 && tree[k].content.is_empty());
+            .find(|&k| k != root && tree[k].children.len() == 1 && tree[k].content_is_empty());
 
         if let Some(k) = todo {
-            tree.move_node(tree[k].children[0], tree[k].parent.unwrap());
+            let parent = tree[k].parent.unwrap();
+
+            tree.move_node(tree[k].children[0], parent);
             tree.delete_node(k);
         } else {
             break;
@@ -1537,12 +1513,14 @@ fn do_family(id: &str, register: &mut Register, logs_root: &str) -> Result<Polyt
     let to_remove = tree
         .nodes()
         .copied()
-        .filter(|&k| k != root && tree[k].content.is_empty() && tree[k].content.is_empty())
+        .filter(|&k| k != root && tree[k].content_is_empty() && tree[k].children.is_empty())
         .collect::<Vec<_>>();
     tree.delete_nodes(&to_remove);
     for k in tree[root].children.clone().into_iter() {
-        tree[k].tag =
-            register.species_tree.mrca(view_cloned(&register.species, &tree[k].content)).unwrap();
+        tree[k].tag = register
+            .species_tree
+            .mrca(clonable_view_cloned(&register.species, tree[k].content_slice()))
+            .unwrap();
     }
     info!("Done.");
 
@@ -1562,14 +1540,16 @@ fn do_family(id: &str, register: &mut Register, logs_root: &str) -> Result<Polyt
     }
 
     info!("Assembling final tree -- {} subtrees", tree[root].children.len());
-
+    tree.enable_leave_cache();
     let root = make_final_tree(&mut tree, register);
-    expand_meta(&mut tree, register, root)?;
+    tree.disable_leave_cache();
 
     info!("Done.");
     File::create(&format!("{}/{}_reconciled.nwk", &logs_root, id))?.write_all(
         tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)).as_bytes(),
     )?;
+
+    expand_meta(&mut tree, register, root)?;
 
     info!("Pruning tree...");
     prune_tree(&mut tree, root);
@@ -1585,13 +1565,13 @@ fn do_family(id: &str, register: &mut Register, logs_root: &str) -> Result<Polyt
         tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)).as_bytes(),
     )?;
 
-    if register.real_size() != tree.descendant_leaves(root).len() {
+    if register.real_size() != tree.full_descendant_leaves(root).len() {
         error!(
             "Gene mismatch: expected {}, found {}",
-            register.size(),
-            tree.descendant_leaves(root).len()
+            register.real_size(),
+            tree.full_descendant_leaves(root).len(),
         );
-        let mut mine = tree.descendant_leaves(root).into_iter().collect::<Vec<_>>();
+        let mut mine = tree.full_descendant_leaves(root).into_iter().collect::<Vec<_>>();
         mine.sort();
         for gs in mine.windows(2) {
             if gs[0] == gs[1] {
@@ -1599,7 +1579,7 @@ fn do_family(id: &str, register: &mut Register, logs_root: &str) -> Result<Polyt
             }
         }
         let mine = HashSet::<_>::from_iter(
-            tree.descendant_leaves(root).iter().map(|l| register.genes[*l].to_owned()),
+            tree.full_descendant_leaves(root).iter().map(|l| register.genes[*l].to_owned()),
         );
         let others = HashSet::from_iter(register.genes.iter().cloned());
         let missings = others.difference(&mine).collect::<Vec<_>>();

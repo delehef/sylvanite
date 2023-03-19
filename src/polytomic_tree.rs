@@ -1,36 +1,59 @@
 #![allow(dead_code)]
-use identity_hash::{IntMap, IntSet};
+use identity_hash::{IdentityHashable, IntMap, IntSet};
 use std::collections::HashMap;
 
 pub type NodeID = usize;
-pub struct Node<T, S> {
+
+pub struct Node<T: IdentityHashable, S> {
     pub children: Vec<NodeID>,
-    pub content: Vec<T>,
+    content: Vec<T>,
     pub parent: Option<NodeID>,
     pub tag: S,
 }
+impl<T: IdentityHashable, S> Node<T, S> {
+    pub fn content_is_empty(&self) -> bool {
+        self.content.is_empty()
+    }
+    pub fn content_len(&self) -> usize {
+        self.content.len()
+    }
+    pub fn content_iter(&self) -> impl Iterator<Item = &T> {
+        self.content.iter()
+    }
+    pub fn content_slice(&self) -> &[T] {
+        &self.content
+    }
+}
 
-pub struct PTree<T: Clone, S> {
+pub struct PTree<T: Clone + IdentityHashable, S> {
     current_id: usize,
     nodes: HashMap<NodeID, Node<T, S>>,
     descendants_cache: IntMap<NodeID, IntSet<NodeID>>,
+    leaves_cache: IntMap<NodeID, IntSet<T>>,
+    leaves_cache_enabled: bool,
 }
 
-impl<T: Clone, S> std::ops::Index<usize> for PTree<T, S> {
+impl<T: Clone + IdentityHashable, S> std::ops::Index<usize> for PTree<T, S> {
     type Output = Node<T, S>;
     fn index(&self, i: usize) -> &Self::Output {
         &self.nodes[&i]
     }
 }
-impl<T: Clone, S> std::ops::IndexMut<usize> for PTree<T, S> {
+impl<T: Clone + IdentityHashable, S> std::ops::IndexMut<usize> for PTree<T, S> {
     fn index_mut(&mut self, i: usize) -> &mut Self::Output {
         self.nodes.get_mut(&i).unwrap()
     }
 }
 
-impl<T: Clone + Eq, S> PTree<T, S> {
+impl<T: Clone + Eq + IdentityHashable + std::hash::Hash + std::fmt::Debug, S> PTree<T, S> {
     pub fn new() -> Self {
-        PTree { current_id: 0, nodes: HashMap::new(), descendants_cache: Default::default() }
+        PTree {
+            current_id: 0,
+            nodes: HashMap::new(),
+            descendants_cache: Default::default(),
+            leaves_cache: Default::default(),
+            leaves_cache_enabled: false,
+        }
     }
 
     fn add_to_cache(&mut self, n: NodeID, new: impl IntoIterator<Item = NodeID> + Clone) {
@@ -75,6 +98,102 @@ impl<T: Clone + Eq, S> PTree<T, S> {
         }
     }
 
+    fn cache_leaves(&mut self, n: NodeID, xs: &[T]) {
+        for x in xs {
+            self.cache_leave(n, x.clone());
+        }
+    }
+
+    fn cache_leave(&mut self, n: NodeID, x: T) {
+        if !self.leaves_cache_enabled {
+            return;
+        }
+
+        self.leaves_cache.get_mut(&n).unwrap().insert(x.clone());
+
+        if let Some(parent) = self[n].parent {
+            self.cache_leave(parent, x);
+        }
+    }
+
+    // fn uncache_leave(&mut self, n: NodeID, x: T) {
+    //     if let Some(parent) = self[n].parent {
+    //         self.leaves_cache.get_mut(&parent).unwrap().get_mut(&x).map(|k| {
+    //             if *k > 0 {
+    //                 *k -= 1
+    //             }
+    //         });
+    //         self.uncache_leave(parent, x);
+    //     }
+    // }
+
+    // fn uncache_leaves(&mut self, n: NodeID, xs: &[T]) {
+    //     for x in xs {
+    //         self.uncache_leave(n, x.clone());
+    //     }
+    // }
+
+    pub fn add_leave(&mut self, n: NodeID, x: T) {
+        self[n].content.push(x.clone());
+        self.cache_leave(n, x);
+    }
+
+    pub fn clear_leaves(&mut self, n: NodeID) {
+        self[n].content.clear();
+        self.refresh_cache_leaves(n);
+    }
+
+    fn rec_refresh_cache_leaves(&mut self, n: NodeID) {
+        if let Some(parent) = self[n].parent {
+            *self.leaves_cache.get_mut(&parent).unwrap() = self[parent].children.iter().fold(
+                self[parent].content.iter().cloned().collect::<IntSet<_>>(),
+                |mut ax, c| {
+                    for cc in self.leaves_cache[c].iter().cloned() {
+                        ax.insert(cc);
+                    }
+                    ax
+                },
+            );
+            self.rec_refresh_cache_leaves(parent)
+        }
+    }
+
+    fn refresh_cache_leaves(&mut self, n: NodeID) {
+        if !self.leaves_cache_enabled {
+            return;
+        }
+        *self.leaves_cache.get_mut(&n).unwrap() = self.full_descendant_leaves(n);
+        self.rec_refresh_cache_leaves(n);
+    }
+
+    fn pure_refresh_cache_leaves(&mut self, n: NodeID) {
+        if !self.leaves_cache_enabled {
+            return;
+        }
+        self.rec_refresh_cache_leaves(n);
+    }
+
+    pub fn disable_leave_cache(&mut self) {
+        self.leaves_cache_enabled = false;
+        self.leaves_cache.clear();
+    }
+
+    pub fn enable_leave_cache(&mut self) {
+        self.leaves_cache_enabled = true;
+        let nodes = self.nodes().cloned().collect::<Vec<_>>();
+
+        for n in nodes.into_iter() {
+            self.leaves_cache.insert(n, self.full_descendant_leaves(n));
+        }
+        // for l in self.nodes().filter(|n| self[**n].children.is_empty()) {
+        //     self.leaves_cache.insert(*l, self[*l].content.iter().cloned().collect());
+        // }
+
+        // for l in self.nodes().filter(|n| self[**n].children.is_empty()) {
+        //     self.pure_refresh_cache_leaves(*l);
+        // }
+    }
+
     pub fn add_node(&mut self, content: &[T], tag: S, parent: Option<NodeID>) -> NodeID {
         self.current_id = self.current_id.checked_add(1).expect("Tree is too big");
         let id = self.current_id;
@@ -85,10 +204,12 @@ impl<T: Clone + Eq, S> PTree<T, S> {
             Node { children: Vec::with_capacity(2), content: content.to_vec(), parent, tag },
         );
         self.descendants_cache.insert(id, Default::default());
+        self.leaves_cache.insert(id, Default::default());
         if let Some(parent) = parent {
             self[parent].children.push(id);
             self.add_to_cache(parent, [id]);
         }
+        self.cache_leaves(id, content);
         id
     }
 
@@ -101,7 +222,8 @@ impl<T: Clone + Eq, S> PTree<T, S> {
         assert!(!self.nodes[&target].children.contains(&n));
         self.nodes.get_mut(&n).unwrap().parent = Some(target);
         self.nodes.get_mut(&target).unwrap().children.push(n);
-        self.add_to_cache_and_children(n)
+        self.add_to_cache_and_children(n);
+        self.pure_refresh_cache_leaves(n);
     }
 
     pub fn unplug(&mut self, n: NodeID) {
@@ -111,6 +233,7 @@ impl<T: Clone + Eq, S> PTree<T, S> {
         if let Some(parent) = parent {
             self.nodes.get_mut(&parent).unwrap().children.retain(|nn| *nn != n);
             self.rm_from_cache_and_children(n);
+            self.pure_refresh_cache_leaves(n);
         }
         self.nodes.get_mut(&n).unwrap().parent = None;
     }
@@ -219,6 +342,25 @@ impl<T: Clone + Eq, S> PTree<T, S> {
         self[n].children.len() + self[n].content.len()
     }
 
+    fn rec_descendant_leaves(&self, i: NodeID, ax: &mut IntSet<T>) {
+        for l in &self.nodes[&i].content {
+            ax.insert(l.clone());
+        }
+        // ax.extend_from_slice(&self.nodes[&i].content);
+        for &j in &self.nodes[&i].children {
+            self.rec_descendant_leaves(j, ax)
+        }
+    }
+    pub fn full_descendant_leaves(&self, n: NodeID) -> IntSet<T> {
+        let mut r = Default::default();
+        self.rec_descendant_leaves(n, &mut r);
+        r
+    }
+
+    pub fn descendant_leaves(&self, n: NodeID) -> &IntSet<T> {
+        &self.leaves_cache[&n]
+    }
+
     pub fn to_newick(&self, f_leaf: &dyn Fn(&T) -> String, f_tag: &dyn Fn(&S) -> String) -> String {
         let mut r = String::new();
 
@@ -249,24 +391,7 @@ impl<T: Clone + Eq, S> PTree<T, S> {
     }
 }
 
-impl<S> PTree<usize, S> {
-    fn rec_descendant_leaves(&self, i: NodeID, ax: &mut IntSet<usize>) {
-        for l in &self.nodes[&i].content {
-            ax.insert(*l);
-        }
-        // ax.extend_from_slice(&self.nodes[&i].content);
-        for &j in &self.nodes[&i].children {
-            self.rec_descendant_leaves(j, ax)
-        }
-    }
-    pub fn descendant_leaves(&self, n: NodeID) -> IntSet<usize> {
-        let mut r = Default::default();
-        self.rec_descendant_leaves(n, &mut r);
-        r
-    }
-}
-
-impl<T: Clone + Eq + std::fmt::Debug, S: std::fmt::Debug> PTree<T, S> {
+impl<T: Clone + Eq + std::fmt::Debug + IdentityHashable, S: std::fmt::Debug> PTree<T, S> {
     fn rec_disp(&self, i: usize, depth: usize) {
         println!("{}{}#{:?} > CHILDREN: {:?}", " ".repeat(depth), i, self[i].tag, self[i].children);
         println!("{}    |- CONTENT: {:?}", " ".repeat(depth), self[i].content);

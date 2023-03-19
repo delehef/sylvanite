@@ -235,13 +235,29 @@ where
     is.into_iter().map(|i| &v[*i])
 }
 
-pub fn view_cloned<'a, T: Index<usize> + 'a, I: IntoIterator<Item = &'a usize> + 'a>(
+pub fn clonable_view_cloned<'a, T, I>(
     v: &'a T,
     is: I,
 ) -> impl Clone + Iterator<Item = <T as Index<usize>>::Output> + 'a
 where
+    T: Index<usize> + 'a,
     <T as Index<usize>>::Output: Sized + Clone,
+
+    I: IntoIterator<Item = &'a usize> + 'a,
     <I as IntoIterator>::IntoIter: Clone,
+{
+    is.into_iter().map(move |i| v[*i].clone())
+}
+
+pub fn view_cloned<'a, T, I>(
+    v: &'a T,
+    is: I,
+) -> impl Iterator<Item = <T as Index<usize>>::Output> + 'a
+where
+    T: Index<usize> + 'a,
+    <T as Index<usize>>::Output: Sized + Clone,
+
+    I: IntoIterator<Item = &'a usize> + 'a,
 {
     is.into_iter().map(move |i| v[*i].clone())
 }
