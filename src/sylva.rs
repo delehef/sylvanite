@@ -2,7 +2,7 @@ use crate::errors::{MatrixParseError, RuntimeError};
 use crate::{errors, utils::*};
 use anyhow::*;
 use colored::Colorize;
-use identity_hash::IntSet;
+use identity_hash::{IntMap, IntSet};
 use itertools::Itertools;
 use log::*;
 use newick::{Newick, NewickTree};
@@ -43,6 +43,7 @@ struct Register<'a> {
     species_tree: &'a NewickTree,
     extended: Vec<GeneID>,
     solos: Vec<GeneID>,
+    fan_out: IntMap<GeneID, Vec<GeneID>>,
 }
 impl Register<'_> {
     fn size(&self) -> usize {
@@ -228,43 +229,41 @@ fn make_register<'a>(
         .map(|l| (species_tree.name(l).expect("Found nameless leaf in species tree").to_owned(), l))
         .collect::<HashMap<_, _>>();
 
-    let meta_genes = genes
+    let fan_out = genes
         .iter()
         .map(|g_id| book.get(g_id))
         .collect::<Result<Vec<_>>>()?
         .into_iter()
-        .sorted_by_cached_key(|g| (g.species.clone(), g.chr.clone(), g.pos))
-        .fold(vec![], |mut ax, g| {
+        .enumerate()
+        .sorted_by_cached_key(|(_, g)| (g.species.clone(), g.chr.clone(), g.pos))
+        .fold(vec![], |mut ax, (i, g)| {
             if merge_tandems {
-                {
-                    if ax.is_empty() {
-                        ax.push(vec![g]);
+                if ax.is_empty() {
+                    ax.push(vec![i]);
+                } else {
+                    let same_last =
+                        g.left_landscape.last().map(|f| *f == g.family).unwrap_or(false);
+                    if same_last {
+                        ax.last_mut().unwrap().push(dbg!(i));
                     } else {
-                        let same_last =
-                            g.left_landscape.last().map(|f| *f == g.family).unwrap_or(false);
-                        if same_last {
-                            ax.last_mut().unwrap().push(g);
-                        } else {
-                            ax.push(vec![g])
-                        }
+                        ax.push(vec![i])
                     }
-                    ax
                 }
+                ax
             } else {
-                ax.push(vec![g]);
+                ax.push(vec![i]);
                 ax
             }
         })
         .into_iter()
-        // .map(|g| {
-        //     let species_id = *species2id.get(&g[0].species).unwrap();
-        //     if g.len() == 1 {
-        //         Gene::Single(g[0].id.to_owned(), species_id)
-        //     } else {
-        //         Gene::Tandem(g.into_iter().map(|x| x.id).collect(), species_id)
-        //     }
-        // })
-        .collect::<Vec<_>>();
+        .filter_map(|g| if g.len() > 1 { Some((g[0], g[1..].to_vec())) } else { None })
+        .collect::<IntMap<_, _>>();
+    let secondary_tandems = fan_out.values().flat_map(|g| g.iter()).cloned().collect::<IntSet<_>>();
+
+    println!("Fan out:");
+    for (i, is) in fan_out.iter() {
+        println!("{} -> {:?}", genes[*i], is.iter().map(|i| &genes[*i]).join(" "));
+    }
 
     info!("Storing gene data");
     let landscape_sizes = genes
@@ -280,11 +279,13 @@ fn make_register<'a>(
         .iter()
         .enumerate()
         .filter_map(|(i, _)| if landscape_sizes[i] > CORE_THRESHOLD { Some(i) } else { None })
-        .collect::<Vec<_>>();
+        .collect::<IntSet<_>>();
     if core.is_empty() {
         warn!("Core is empty; using all non-solo instead");
         core = (0..genes.len()).filter(|&p| landscape_sizes[p] > 1).collect();
     }
+    let core = core.difference(&secondary_tandems).cloned().collect::<IntSet<_>>();
+
     let species = genes
         .iter()
         .map(|p| {
@@ -309,15 +310,19 @@ fn make_register<'a>(
                 None
             }
         })
-        .collect::<HashSet<_>>()
-        .difference(&HashSet::<GeneID>::from_iter(core.iter().copied()))
-        .copied()
+        .collect::<IntSet<_>>()
+        .difference(&(&core | &secondary_tandems))
+        .cloned()
         .collect::<Vec<_>>();
-    let solos = Vec::from_iter((0..genes.len()).filter(|&p| landscape_sizes[p] == 1));
+    let solos = Vec::from_iter(
+        (0..genes.len())
+            .filter(|&p| landscape_sizes[p] == 1)
+            .filter(|i| !secondary_tandems.contains(i)),
+    );
     let register = Register {
         landscape_size: landscape_sizes,
-        core_set: core.iter().cloned().collect(),
-        core,
+        core: core.iter().cloned().collect_vec(),
+        core_set: core,
         genes: genes.to_owned(),
         species,
         all_species,
@@ -326,6 +331,7 @@ fn make_register<'a>(
         species_tree,
         extended,
         solos,
+        fan_out,
     };
     Ok(register)
 }
@@ -990,30 +996,71 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &Register, root: usize) -> Result<(
         }
     }
 
-    //     let leaves =
-    //         t.descendants(root).iter().cloned().filter(|n| t[*n].children.is_empty()).collect_vec();
-    //     for n in leaves.into_iter() {
-    //         let genes = t[n].content_slice().clone();
-    //         if !genes.is_empty() {
-    //             assert_eq!(genes.len(), 1);
-    //             let gene = &r.genes[genes[0]].clone();
-    //             match gene {
-    //                 Gene::Tandem(xs, s) => {
-    //                     let xs_ids = xs
-    //                         .iter()
-    //                         .map(|name| {
-    //                             let id = r.genes.len();
-    //                             r.genes.push(Gene::Single(name.to_owned(), *s));
-    //                             id
-    //                         })
-    //                         .collect_vec();
-    //                     t.clear_leaves(n);
-    //                     rec_graft(t, n, &xs_ids);
-    //                 }
-    //                 _ => {}
-    //             }
-    //         }
-    //     }
+    const MIN_CS: f32 = 0.5;
+    let mut todos = r
+        .fan_out
+        .iter()
+        .map(|(k, v)| (t.find_node(|n| n.content_slice().contains(k)).unwrap(), k, v))
+        .sorted_by_key(|(a, _, _)| t.topo_depth(*a))
+        .map(|(a, k, v)| (a, std::iter::once(k).chain(v.iter()).cloned().collect::<Vec<_>>()))
+        .collect::<Vec<(usize, Vec<usize>)>>();
+    let species = todos.iter().map(|ts| r.species[ts.1[0]]).collect::<Vec<_>>();
+    for todo in &todos {
+        debug!(
+            "Clearing {:?}",
+            t[todo.0].content_iter().map(|g| r.genes[*g].as_str()).collect_vec()
+        );
+        t[todo.0].content_clear();
+    }
+
+    debug!("Tandems found in {:?}", species.iter().map(|s| r.species_name(*s)).collect_vec());
+
+    while let Some(todo) = todos.last().and_then(|ts| ts.1.first().map(|x| (ts.0, *x))) {
+        debug!("Opening at {:?}", todo);
+        let anchor = todo.0;
+        let genes = vec![todo.1];
+
+        let mut current_best: (usize, Vec<usize>) = (anchor, genes);
+        let mut current_mrca = anchor;
+
+        while let Some(new_mrca) = t[current_mrca].parent {
+            // debug!("Now at {}", r.species_name(t[new_mrca].tag));
+            let all_descendants = t.full_descendants(new_mrca);
+            let new_genes: Vec<GeneID> = todos
+                .iter()
+                .filter_map(
+                    |(anchor, gs)| {
+                        if all_descendants.contains(anchor) {
+                            Some(gs[0])
+                        } else {
+                            None
+                        }
+                    },
+                )
+                .collect_vec();
+            let cs = new_genes.iter().map(|g| r.species[*g]).collect::<IntSet<_>>().len() as f32
+                / r.span(t[new_mrca].tag).len() as f32;
+            if cs >= MIN_CS && new_genes.len() > current_best.1.len() {
+                current_best = (new_mrca, new_genes)
+            }
+            debug!("{}: cs = {}", r.species_name(t[new_mrca].tag), cs);
+            current_mrca = new_mrca;
+        }
+        debug!("Closing.");
+        debug!(
+            "Extracting {:?} from {:?}@{}",
+            current_best.1.iter().map(|g| r.genes[*g].as_str()).collect::<Vec<_>>(),
+            current_best.1.iter().map(|g| r.species_name(r.species[*g])).collect::<HashSet<_>>(),
+            r.species_name(t[current_best.0].tag),
+        );
+        let alpha = t.add_node(&[], t[current_best.0].tag, Some(t[current_best.0].parent.unwrap()));
+        t.move_node(current_best.0, alpha);
+        let _ = reconcile(t, &current_best.1, r, Some(alpha), None, false);
+        todos.iter_mut().for_each(|ts| ts.1.retain(|g| !current_best.1.contains(g)));
+
+        todos.retain(|t| !t.1.is_empty());
+    }
+
     Ok(())
 }
 
@@ -1328,6 +1375,19 @@ fn prune_tree(tree: &mut PolytomicGeneTree, root: usize) {
     info!("...to {}", tree.nodes().count());
 }
 
+/// Given a list of genes and the register, reconcile them with the species tree
+/// and graft them on the tree or on a new node.
+///
+/// # Arguments
+///
+/// * `t` - The gene tree to graft on
+/// * `ps` - The IDs of the genes to reconcile
+/// * `register` - The global register
+/// * `graft` - If defined, where to graft the reconciliation on the gene tree;
+///             otherwise the new subtree root node ID will be returned
+/// * `from` - If defined, the species to start the reconciliation from; otherwise
+///            the MRCA of `ps` will be used
+/// * `full` - if true, (empty) nodes will be created for all descendants of `from`
 fn reconcile(
     t: &mut PolytomicGeneTree,
     ps: &[GeneID],
@@ -1336,6 +1396,12 @@ fn reconcile(
     from: Option<SpeciesID>,
     full: bool,
 ) -> usize {
+    debug!(
+        "reconciling {:?}",
+        ps.iter()
+            .map(|g| register.species_name(register.species[*g]).to_owned())
+            .collect::<Vec<_>>()
+    );
     fn rec_add(
         t: &mut PolytomicGeneTree,
         parent: usize,
@@ -1347,11 +1413,19 @@ fn reconcile(
     ) {
         if register.species_tree[phylo_node].is_leaf() {
             let mut current_root = parent;
-            let to_plug =
+            let mut to_plug =
                 ps.iter().filter(|p| register.species[**p] == phylo_node).collect::<Vec<_>>();
             if !to_plug.is_empty() {
-                for &new in to_plug.into_iter() {
-                    current_root = t.add_node(&[new], phylo_node, Some(current_root));
+                if true {
+                    let mut current_leaf =
+                        t.add_node(&[*to_plug.pop().unwrap()], phylo_node, Some(current_root));
+                    for &new in to_plug.into_iter() {
+                        current_leaf = t.add_node(&[new], phylo_node, Some(current_leaf));
+                    }
+                } else {
+                    for &new in to_plug.into_iter() {
+                        current_root = t.add_node(&[new], phylo_node, Some(current_root));
+                    }
                 }
             } else if full {
                 t.add_node(&[], phylo_node, Some(current_root));
@@ -1530,7 +1604,6 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
         let others = HashSet::from_iter(register.genes.iter().cloned());
         let missings = others.difference(&mine).collect::<Vec<_>>();
         info!("{:?}", missings);
-        bail!("genes number mismatch")
     }
 
     Ok(tree)

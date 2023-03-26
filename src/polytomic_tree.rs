@@ -23,6 +23,9 @@ impl<T: IdentityHashable, S> Node<T, S> {
     pub fn content_slice(&self) -> &[T] {
         &self.content
     }
+    pub fn content_clear(&mut self) {
+        self.content.clear()
+    }
 }
 
 pub struct PTree<T: Clone + IdentityHashable, S> {
@@ -259,23 +262,6 @@ impl<T: Clone + Eq + IdentityHashable + std::hash::Hash + std::fmt::Debug, S> PT
         ns.iter().for_each(|&n| self.delete_node(n));
     }
 
-    // pub fn merge_nodes(&mut self, merger: NodeID, merged: NodeID, f: &dyn Fn(&mut Vec<T>, &[T])) {
-    //     assert!(self.nodes.contains_key(&merger));
-    //     assert!(self.nodes.contains_key(&merged));
-
-    //     self.nodes
-    //         .values_mut()
-    //         .filter(|v| v.parent.is_some() && v.parent.unwrap() == merged)
-    //         .for_each(|v| v.parent = Some(merger));
-
-    //     let merged_children = self.nodes[&merged].children.to_vec();
-    //     self.nodes.get_mut(&merger).unwrap().children.extend_from_slice(&merged_children);
-
-    //     let merged_content = &self.nodes[&merged].content.clone();
-    //     f(&mut self.nodes.get_mut(&merger).unwrap().content, merged_content);
-    //     self.delete_node(merged);
-    // }
-
     pub fn move_node(&mut self, n: NodeID, dest: NodeID) {
         self.unplug(n);
         self.plug(dest, n);
@@ -359,6 +345,13 @@ impl<T: Clone + Eq + IdentityHashable + std::hash::Hash + std::fmt::Debug, S> PT
 
     pub fn descendant_leaves(&self, n: NodeID) -> &IntSet<T> {
         &self.leaves_cache[&n]
+    }
+
+    pub fn find_node<F>(&self, f: F) -> Option<NodeID>
+    where
+        F: Fn(&Node<T, S>) -> bool,
+    {
+        self.nodes.iter().find(|(_i, n)| f(n)).map(|(i, _)| *i)
     }
 
     pub fn to_newick(&self, f_leaf: &dyn Fn(&T) -> String, f_tag: &dyn Fn(&S) -> String) -> String {
