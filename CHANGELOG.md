@@ -2,11 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.6] - 2023-03-27
+
+### Bug Fixes
+
+- Metagenes
+
+### Miscellaneous Tasks
+
+- Update dependencies
+
+### Performance
+
+- Use as many iterators as possible; cache descendants nodes
+- Implement clutchable leaves caching
+
 ## [1.5.5] - 2023-03-16
 
 ### Bug Fixes
 
 - UNKNWN species for fanned out tandems
+
+### Miscellaneous Tasks
+
+- Release sylvanite version 1.5.5
 
 ## [1.5.4] - 2023-03-16
 
