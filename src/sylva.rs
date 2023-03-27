@@ -244,7 +244,7 @@ fn make_register<'a>(
                     let same_last =
                         g.left_landscape.last().map(|f| *f == g.family).unwrap_or(false);
                     if same_last {
-                        ax.last_mut().unwrap().push(dbg!(i));
+                        ax.last_mut().unwrap().push(i);
                     } else {
                         ax.push(vec![i])
                     }
@@ -260,12 +260,6 @@ fn make_register<'a>(
         .collect::<IntMap<_, _>>();
     let secondary_tandems = fan_out.values().flat_map(|g| g.iter()).cloned().collect::<IntSet<_>>();
 
-    println!("Fan out:");
-    for (i, is) in fan_out.iter() {
-        println!("{} -> {:?}", genes[*i], is.iter().map(|i| &genes[*i]).join(" "));
-    }
-
-    info!("Storing gene data");
     let landscape_sizes = genes
         .iter()
         .map(|p| {
