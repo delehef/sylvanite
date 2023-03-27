@@ -2,11 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.8] - 2023-03-27
+
+### Bug Fixes
+
+- Use extended as clusters in pathologic cases
+
 ## [1.5.7] - 2023-03-27
 
 ### Bug Fixes
 
 - Remove debug prints
+
+### Miscellaneous Tasks
+
+- Release sylvanite version 1.5.7
 
 ## [1.5.6] - 2023-03-27
 
