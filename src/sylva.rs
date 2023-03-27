@@ -1512,16 +1512,34 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
     let mut tree = PolytomicGeneTree::new();
     let root = tree.add_node(&[], 0, None);
     let clusters = clusterize(&register.synteny.masked(&register.core, &register.core), tt);
-    for c in clusters.into_iter() {
-        tree.add_node(&c.iter().map(|x| register.core[*x]).collect::<Vec<_>>(), 0, Some(root));
-    }
-    File::create(&format!("{}/{}_vanilla.nwk", &logs_root, id))?.write_all(
-        tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)).as_bytes(),
-    )?;
+    let satellites = if clusters.is_empty() {
+        // In the edge case where the clustering failed, use the extended as single-element clusters
+        // This typically happens in very small trees, or tandem-only trees
+        for c in register.extended.iter() {
+            tree.add_node(&[*c], 0, Some(root));
+        }
 
-    info!("Injecting {} extended in {} clusters", register.extended.len(), tree[1].children.len());
-    inject_extended(&mut tree, register);
-    let satellites = remove_solos_clusters(&mut tree);
+        File::create(&format!("{}/{}_vanilla.nwk", &logs_root, id))?.write_all(
+            tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)).as_bytes(),
+        )?;
+
+        vec![]
+    } else {
+        for c in clusters.into_iter() {
+            tree.add_node(&c.iter().map(|x| register.core[*x]).collect::<Vec<_>>(), 0, Some(root));
+        }
+        File::create(&format!("{}/{}_vanilla.nwk", &logs_root, id))?.write_all(
+            tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)).as_bytes(),
+        )?;
+
+        info!(
+            "Injecting {} extended in {} clusters",
+            register.extended.len(),
+            tree[1].children.len()
+        );
+        inject_extended(&mut tree, register);
+        remove_solos_clusters(&mut tree)
+    };
 
     info!("Tagging tree...");
     let to_remove = tree
