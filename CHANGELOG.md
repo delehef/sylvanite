@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.7] - 2023-03-27
+
+### Bug Fixes
+
+- Remove debug prints
+
 ## [1.5.6] - 2023-03-27
 
 ### Bug Fixes
@@ -11,6 +17,7 @@ All notable changes to this project will be documented in this file.
 ### Miscellaneous Tasks
 
 - Update dependencies
+- Release sylvanite version 1.5.6
 
 ### Performance
 
