@@ -159,13 +159,6 @@ fn jaccard<T: Eq + Hash>(a: &HashSet<T>, b: &HashSet<T>) -> f32 {
     a.intersection(b).count() as f32 / a.union(b).count() as f32
 }
 
-fn vec_inter<T: Copy + Eq + Hash>(a: &[T], b: &[T]) -> HashSet<T> {
-    HashSet::<T>::from_iter(a.iter().copied())
-        .intersection(&HashSet::<T>::from_iter(b.iter().copied()))
-        .copied()
-        .collect::<HashSet<T>>()
-}
-
 fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatrix<f32>> {
     let n = ids.len();
     let mut r = VecMatrix::<f32>::with_elem(n, n, 0.);
@@ -1000,17 +993,17 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &Register, root: usize) -> Result<(
         .collect::<Vec<(usize, Vec<usize>)>>();
     let species = todos.iter().map(|ts| r.species[ts.1[0]]).collect::<Vec<_>>();
     for todo in &todos {
-        debug!(
+        trace!(
             "Clearing {:?}",
             t[todo.0].content_iter().map(|g| r.genes[*g].as_str()).collect_vec()
         );
         t[todo.0].content_clear();
     }
 
-    debug!("Tandems found in {:?}", species.iter().map(|s| r.species_name(*s)).collect_vec());
+    trace!("Tandems found in {:?}", species.iter().map(|s| r.species_name(*s)).collect_vec());
 
     while let Some(todo) = todos.last().and_then(|ts| ts.1.first().map(|x| (ts.0, *x))) {
-        debug!("Opening at {:?}", todo);
+        trace!("Opening at {:?}", todo);
         let anchor = todo.0;
         let genes = vec![todo.1];
 
@@ -1018,7 +1011,6 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &Register, root: usize) -> Result<(
         let mut current_mrca = anchor;
 
         while let Some(new_mrca) = t[current_mrca].parent {
-            // debug!("Now at {}", r.species_name(t[new_mrca].tag));
             let all_descendants = t.full_descendants(new_mrca);
             let new_genes: Vec<GeneID> = todos
                 .iter()
@@ -1037,11 +1029,11 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &Register, root: usize) -> Result<(
             if cs >= MIN_CS && new_genes.len() > current_best.1.len() {
                 current_best = (new_mrca, new_genes)
             }
-            debug!("{}: cs = {}", r.species_name(t[new_mrca].tag), cs);
+            trace!("{}: cs = {}", r.species_name(t[new_mrca].tag), cs);
             current_mrca = new_mrca;
         }
-        debug!("Closing.");
-        debug!(
+        trace!("Closing.");
+        trace!(
             "Extracting {:?} from {:?}@{}",
             current_best.1.iter().map(|g| r.genes[*g].as_str()).collect::<Vec<_>>(),
             current_best.1.iter().map(|g| r.species_name(r.species[*g])).collect::<HashSet<_>>(),
@@ -1059,6 +1051,12 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &Register, root: usize) -> Result<(
 }
 
 fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
+    let to_keep = t[1].children.iter().map(|&k| t[k].tag).collect::<IntSet<_>>();
+    info!(
+        "Partially pruning tree, keeping {:?}",
+        to_keep.iter().map(|&s| register.species_name(s)).collect_vec()
+    );
+    inner_prune_tree(t, 1, &to_keep);
     let mut todo = t[1]
         .children
         .iter()
@@ -1316,6 +1314,45 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
     new_root
 }
 
+fn inner_prune_tree(tree: &mut PolytomicGeneTree, root: usize, tag_to_keep: &IntSet<SpeciesID>) {
+    tree.disable_leave_cache();
+    info!("Pruning empty leaf nodes -- from {}", tree.nodes().count());
+    loop {
+        let todos = tree
+            .nodes()
+            .copied()
+            .filter(|&k| tree[k].children.is_empty() && tree[k].content_is_empty())
+            .filter(|&k| !tag_to_keep.contains(&tree[k].tag))
+            .collect::<Vec<_>>();
+        if todos.is_empty() {
+            break;
+        } else {
+            tree.delete_nodes(&todos);
+        }
+    }
+    info!("...to {}", tree.nodes().count());
+
+    info!("Pruning scaffolding -- from {}", tree.nodes().count());
+    loop {
+        let todo = tree
+            .nodes()
+            .copied()
+            .filter(|&k| !tag_to_keep.contains(&tree[k].tag))
+            .find(|&k| k != root && tree[k].children.len() == 1 && tree[k].content_is_empty());
+
+        if let Some(k) = todo {
+            let parent = tree[k].parent.unwrap();
+
+            tree.move_node(tree[k].children[0], parent);
+            tree.delete_node(k);
+        } else {
+            break;
+        }
+    }
+    info!("...to {}", tree.nodes().count());
+    tree.enable_leave_cache();
+}
+
 fn prune_tree(tree: &mut PolytomicGeneTree, root: usize) {
     info!("Pruning empty leaf nodes -- from {}", tree.nodes().count());
     loop {
@@ -1390,7 +1427,7 @@ fn reconcile(
     from: Option<SpeciesID>,
     full: bool,
 ) -> usize {
-    debug!(
+    trace!(
         "reconciling {:?}",
         ps.iter()
             .map(|g| register.species_name(register.species[*g]).to_owned())
@@ -1575,11 +1612,10 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
     tree.enable_leave_cache();
     let root = make_final_tree(&mut tree, register);
     tree.disable_leave_cache();
-
-    info!("Done.");
     File::create(&format!("{}/{}_reconciled.nwk", &logs_root, id))?.write_all(
         tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)).as_bytes(),
     )?;
+    info!("Done.");
 
     expand_meta(&mut tree, register, root)?;
 
@@ -1616,6 +1652,7 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
         let others = HashSet::from_iter(register.genes.iter().cloned());
         let missings = others.difference(&mine).collect::<Vec<_>>();
         info!("{:?}", missings);
+        panic!()
     }
 
     Ok(tree)
