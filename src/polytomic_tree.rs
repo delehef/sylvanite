@@ -9,7 +9,9 @@ pub struct Node<T: IdentityHashable, S> {
     content: Vec<T>,
     pub parent: Option<NodeID>,
     pub tag: S,
+    pub metadata: HashMap<String, String>,
 }
+
 impl<T: IdentityHashable, S> Node<T, S> {
     pub fn content_is_empty(&self) -> bool {
         self.content.is_empty()
@@ -204,7 +206,13 @@ impl<T: Clone + Eq + IdentityHashable + std::hash::Hash + std::fmt::Debug, S> PT
         assert!(parent.is_none() || self.nodes.contains_key(&parent.unwrap()));
         self.nodes.insert(
             id,
-            Node { children: Vec::with_capacity(2), content: content.to_vec(), parent, tag },
+            Node {
+                children: Vec::with_capacity(2),
+                content: content.to_vec(),
+                parent,
+                tag,
+                metadata: Default::default(),
+            },
         );
         self.descendants_cache.insert(id, Default::default());
         self.leaves_cache.insert(id, Default::default());
@@ -319,7 +327,17 @@ impl<T: Clone + Eq + IdentityHashable + std::hash::Hash + std::fmt::Debug, S> PT
         }
         r.push_str(&children);
         r.push(')');
-        r.push_str(&format!("[&&NHX:S={}]", f_tag(&self.nodes[&i].tag)));
+        let metadata = self.nodes[&i]
+            .metadata
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<String>>()
+            .join(":");
+        r.push_str(&format!(
+            "[&&NHX:S={}{}]",
+            f_tag(&self.nodes[&i].tag),
+            if metadata.is_empty() { "".to_owned() } else { format!(":{}", metadata) }
+        ));
 
         r
     }
@@ -371,13 +389,13 @@ impl<T: Clone + Eq + IdentityHashable + std::hash::Hash + std::fmt::Debug, S> PT
 
     pub fn to_newick_from(
         &self,
-        i: usize,
+        subroot: usize,
         f_leaf: &dyn Fn(&T) -> String,
         f_tag: &dyn Fn(&S) -> String,
     ) -> String {
         let mut r = String::new();
 
-        r.push_str(&self.format_leaf_newick(i, f_leaf, f_tag));
+        r.push_str(&self.format_leaf_newick(subroot, f_leaf, f_tag));
         r.push_str(";\n");
 
         r

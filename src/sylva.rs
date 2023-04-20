@@ -136,6 +136,7 @@ impl<'st> Register<'st> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn ellc<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> i64 {
         let species: Vec<SpeciesID> = species.into_iter().copied().collect();
         let mrca = self.species_tree.mrca(species.iter().cloned()).unwrap(); // FIXME
@@ -970,19 +971,7 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
     }
 }
 
-fn expand_meta(t: &mut PolytomicGeneTree, r: &Register, root: usize) -> Result<()> {
-    fn rec_graft(t: &mut PolytomicGeneTree, root: usize, xs: &[usize]) {
-        assert!(t[root].content_is_empty());
-        // assert!(t[root].children.is_empty());
-        if xs.len() > 2 {
-            let _leaf = t.add_node(&[xs[0]], t[root].tag, Some(root));
-            let rest = t.add_node(&[], t[root].tag, Some(root));
-            rec_graft(t, rest, &xs[1..]);
-        } else {
-            let _ = t.add_node(xs, t[root].tag, Some(root));
-        }
-    }
-
+fn expand_meta(t: &mut PolytomicGeneTree, r: &Register) -> Result<()> {
     const MIN_CS: f32 = 0.5;
     let mut todos = r
         .fan_out
@@ -1050,6 +1039,13 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &Register, root: usize) -> Result<(
     Ok(())
 }
 
+/// Represents the crierion used to sort grafting candidates
+struct GraftCriteria<F> {
+    elc: i64,
+    synteny: OrderedFloat<F>,
+    divergence: OrderedFloat<F>,
+}
+
 fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
     let to_keep = t[1].children.iter().map(|&k| t[k].tag).collect::<IntSet<_>>();
     info!(
@@ -1072,30 +1068,34 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
     let aa = todo.pop().unwrap();
     let new_root = reconcile_upstream(t, aa, register, None);
 
-    while let Some(a) = todo.pop() {
+    while let Some(to_graft) = todo.pop() {
         let candidate_parents = t
             .descendants(new_root)
             .iter()
             .cloned()
-            .filter(|&b| b != a && t[b].tag == t[a].tag)
-            .filter(|&b| !t.descendants(a).contains(&b))
+            .filter(|&b| b != to_graft && t[b].tag == t[to_graft].tag)
+            .filter(|&b| !t.descendants(to_graft).contains(&b))
             .collect::<Vec<_>>();
 
         let mut leaves = HashMap::new();
         leaves.insert(
-            a,
-            t.descendant_leaves(a).intersection(&register.core_set).cloned().collect::<Vec<_>>(),
+            to_graft,
+            t.descendant_leaves(to_graft)
+                .intersection(&register.core_set)
+                .cloned()
+                .collect::<Vec<_>>(),
         );
         let mut speciess = HashMap::new();
         speciess.insert(
-            a,
-            view_cloned(&register.species, t.descendant_leaves(a)).collect::<IntSet<SpeciesID>>(),
+            to_graft,
+            view_cloned(&register.species, t.descendant_leaves(to_graft))
+                .collect::<IntSet<SpeciesID>>(),
         );
         let mut context_nodes = HashMap::new();
         for i in &candidate_parents {
             let mut context_node = *i;
             'search_context: while t.descendant_leaves(context_node).len() as f32
-                <= leaves[&a].len() as f32 / 2.0 + 1.
+                <= leaves[&to_graft].len() as f32 / 2.0 + 1.
                 && t[context_node].parent.is_some()
             {
                 context_node = t[context_node].parent.unwrap();
@@ -1127,7 +1127,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
         let log = false; //view(&register.proteins, &t.descendant_leaves(a))
                          //.any(|s| ["ENSGACP00000018817", "ENSTRUP00000037889"].contains(&s.as_str()));
         if log {
-            println!("Injecting {}", register.species_name(t[a].tag));
+            println!("Injecting {}", register.species_name(t[to_graft].tag));
         }
 
         let mut candidate_parents = candidate_parents
@@ -1135,12 +1135,12 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
             .map(|b| {
                 let mrca = register
                     .species_tree
-                    .mrca(speciess[&a].iter().chain(speciess[b].iter()).cloned())
+                    .mrca(speciess[&to_graft].iter().chain(speciess[b].iter()).cloned())
                     .unwrap();
-                let elc = register.elc_from(speciess[&a].iter().cloned(), mrca)
+                let elc = register.elc_from(speciess[&to_graft].iter().cloned(), mrca)
                     + register.elc_from(speciess[b].iter().cloned(), mrca);
 
-                let synteny = leaves[&a]
+                let synteny = leaves[&to_graft]
                     .iter()
                     .map(|l| {
                         if log {
@@ -1154,18 +1154,25 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                         register.synteny.masked(&[*l], &leaves[b]).max()
                     })
                     .sum::<f32>()
-                    / leaves[&a].len() as f32;
-                let divergence = register.divergence.masked(&leaves[&a], &leaves[b]).min();
+                    / leaves[&to_graft].len() as f32;
+                let divergence = register.divergence.masked(&leaves[&to_graft], &leaves[b]).min();
 
-                (b, (elc, OrderedFloat(round(synteny, 2)), OrderedFloat(round(divergence, 2))))
+                (
+                    b,
+                    GraftCriteria {
+                        elc,
+                        synteny: OrderedFloat(round(synteny, 2)),
+                        divergence: OrderedFloat(round(divergence, 2)),
+                    },
+                )
             })
             .collect::<Vec<_>>();
-        candidate_parents.sort_by_key(|c| (c.1 .0, -c.1 .1, c.1 .2));
+        candidate_parents.sort_by_key(|c| (c.1.elc, -c.1.synteny, c.1.divergence));
 
         if log {
             println!("\n\n=== BEFORE ===");
             for b in &candidate_parents {
-                let bb = b.1;
+                let bb = &b.1;
                 let b = b.0;
                 info!(
                     "{:20} {:4}/{:4} ({:3}/{:3} leaves) DELC: {:2} SYN: {:2.2} DV: {:2.2} T: {} {}",
@@ -1174,65 +1181,70 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                     context_nodes[b],
                     t.descendant_leaves(*b).len(),
                     leaves[b].len(),
-                    bb.0,
-                    bb.1,
-                    bb.2,
+                    bb.elc,
+                    bb.synteny,
+                    bb.divergence,
                     register.species_name(t[*b].tag),
                     leaves[b].first().map(|g| register.genes[*g].as_str()).unwrap_or("EMPTY")
                 );
             }
         }
 
-        if candidate_parents.iter().map(|c| c.1 .1).any(|s| s >= RELAXED_SYNTENY_THRESHOLD) {
+        let mut method = "ELC";
+
+        if candidate_parents.iter().map(|c| c.1.synteny).any(|s| s >= RELAXED_SYNTENY_THRESHOLD) {
             // debug!("Filtering by synteny");
-            candidate_parents.retain(|c| c.1 .1 >= RELAXED_SYNTENY_THRESHOLD);
+            candidate_parents.retain(|c| c.1.synteny >= RELAXED_SYNTENY_THRESHOLD);
             candidate_parents.sort_by_key(|c| {
                 (
-                    -c.1 .1, // Synteny
-                    c.1 .0,  // ELC
-                    c.1 .2,  // Sequence
+                    -c.1.synteny,   // Synteny
+                    c.1.elc,        // ELC
+                    c.1.divergence, // Sequence
                 )
-            })
-        }
-        if candidate_parents.iter().map(|c| c.1 .2).any(|d| d <= OrderedFloat(0.5)) {
+            });
+            method = "SYN";
+        } else if candidate_parents.iter().map(|c| c.1.divergence).any(|d| d <= OrderedFloat(0.5)) {
             // debug!("Filtering by divergence");
-            candidate_parents.retain(|c| c.1 .2 <= OrderedFloat(0.5));
+            candidate_parents.retain(|c| c.1.divergence <= OrderedFloat(0.5));
             candidate_parents.sort_by_key(|c| {
                 (
-                    c.1 .2,  // Sequence
-                    c.1 .0,  // ELC
-                    -c.1 .1, // Synteny
+                    c.1.divergence, // Sequence
+                    c.1.elc,        // ELC
+                    -c.1.synteny,   // Synteny
                 )
-            })
+            });
+            method = "SEQ";
         }
 
         if log {
             println!("=== AFTER ===");
             for b in &candidate_parents {
-                let bb = b.1;
+                let bb = &b.1;
                 let b = b.0;
                 info!(
                     "{:4}/{:4} ({:4} leaves) DELC: {:2} SYN: {:2.2} DV: {:2.2} T: {} {}",
                     b,
                     context_nodes[b],
                     leaves[b].len(),
-                    bb.0,
-                    bb.1,
-                    bb.2,
+                    bb.elc,
+                    bb.synteny,
+                    bb.divergence,
                     register.species_name(t[*b].tag),
                     leaves[b].first().map(|g| register.genes[*g].as_str()).unwrap_or("EMPTY")
                 );
             }
         }
         if let Some(cluster) = candidate_parents.first() {
-            let child = a;
+            let child = to_graft;
+            t[child].metadata.insert("METHOD".into(), method.to_owned());
             let parent = *cluster.0;
 
             if log {
                 println!("Parent: {}/{}", t[parent].content_len(), t[parent].children.len());
             }
 
-            // If the child is plugged on a completely empty subtree, it should replace it to lock its docking points
+            // If the child is plugged on a completely empty subtree,
+            // it should replace it to lock its docking points
             if t.descendant_leaves(parent).is_empty() {
                 t.move_node(child, t[parent].parent.unwrap());
                 t.delete_node(parent);
@@ -1617,7 +1629,7 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
     )?;
     info!("Done.");
 
-    expand_meta(&mut tree, register, root)?;
+    expand_meta(&mut tree, register)?;
 
     info!("Pruning tree...");
     prune_tree(&mut tree, root);
