@@ -2,21 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.5.9] - 2023-03-30
-
-### Performance
-
-- Pre-prune the tree before grafting subtrees
-
-## [1.5.8] - 2023-03-27
+## [1.5.10] - 2023-04-27
 
 ### Bug Fixes
 
 - Use extended as clusters in pathologic cases
 
+### Features
+
+- Indicate the grafting criterion used
+
 ### Miscellaneous Tasks
 
 - Release sylvanite version 1.5.8
+- Release sylvanite version 1.5.9
+
+### Performance
+
+- Pre-prune the tree before grafting subtrees
 
 ## [1.5.7] - 2023-03-27
 
