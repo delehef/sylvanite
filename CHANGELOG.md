@@ -2,24 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.5.10] - 2023-04-27
-
-### Bug Fixes
-
-- Use extended as clusters in pathologic cases
+## [1.5.11] - 2023-05-27
 
 ### Features
 
 - Indicate the grafting criterion used
+- Add an option to ignore missing distances
 
 ### Miscellaneous Tasks
 
-- Release sylvanite version 1.5.8
+- Release sylvanite version 1.5.10
+- Add git-cliff to dependencies
+
+## [1.5.9] - 2023-03-30
+
+### Miscellaneous Tasks
+
 - Release sylvanite version 1.5.9
 
 ### Performance
 
 - Pre-prune the tree before grafting subtrees
+
+## [1.5.8] - 2023-03-27
+
+### Bug Fixes
+
+- Use extended as clusters in pathologic cases
+
+### Miscellaneous Tasks
+
+- Release sylvanite version 1.5.8
 
 ## [1.5.7] - 2023-03-27
 

@@ -128,7 +128,7 @@ enum Commands {
         merge_tandems: bool,
 
         /// if enabled, replace missing values in distance matrices by their default
-        #[clap(long="ignore", value_parser=["synteny", "sequence"])]
+        #[clap(long="ignore-missing", value_parser=["synteny", "sequence"])]
         ignore_missing: Vec<String>,
     },
 }
