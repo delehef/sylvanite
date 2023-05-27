@@ -160,7 +160,12 @@ fn jaccard<T: Eq + Hash>(a: &HashSet<T>, b: &HashSet<T>) -> f32 {
     a.intersection(b).count() as f32 / a.union(b).count() as f32
 }
 
-fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatrix<f32>> {
+fn parse_dist_matrix<S: AsRef<str>>(
+    filename: &str,
+    ids: &[S],
+    ignore_missing: bool,
+    default_value: f32,
+) -> Result<VecMatrix<f32>> {
     let n = ids.len();
     let mut r = VecMatrix::<f32>::with_elem(n, n, 0.);
     let mut tmp = VecMatrix::<f32>::with_elem(n, n, 0.);
@@ -186,10 +191,19 @@ fn parse_dist_matrix<S: AsRef<str>>(filename: &str, ids: &[S]) -> Result<VecMatr
         let gi = ids[i].as_ref();
         for j in 0..n {
             let gj = ids[j].as_ref();
-            r[(i, j)] = tmp[(
-                *r2g.get(gi).with_context(|| format!("`{}` not found in {}", gi, filename))?,
-                *r2g.get(gj).with_context(|| format!("`{}` not found in {}", gj, filename))?,
-            )];
+            r[(i, j)] = if ignore_missing {
+                if let Some((gi, gj)) = r2g.get(gi).zip(r2g.get(gj)) {
+                    tmp[(*gi, *gj)]
+                } else {
+                    debug!("using default value for {}/{}", gi, gj);
+                    default_value
+                }
+            } else {
+                tmp[(
+                    *r2g.get(gi).with_context(|| format!("`{}` not found in {}", gi, filename))?,
+                    *r2g.get(gj).with_context(|| format!("`{}` not found in {}", gj, filename))?,
+                )]
+            };
         }
     }
 
@@ -204,19 +218,34 @@ fn make_register<'a>(
     syntenies: &str,
     divergences: &str,
     merge_tandems: bool,
+    ignore_missing: &[String],
 ) -> Result<Register<'a>> {
     info!("Building register");
 
     info!("Parsing synteny matrix");
     let synteny_matrix = &format!("{}/{}.dist", syntenies, id);
-    let synteny = parse_dist_matrix(synteny_matrix, genes).map_err(|e| {
-        RuntimeError::FailedToReadMatrix { source: e, filename: synteny_matrix.to_owned() }
+    let synteny = parse_dist_matrix(
+        synteny_matrix,
+        genes,
+        ignore_missing.contains(&"synteny".to_string()),
+        0.,
+    )
+    .map_err(|e| RuntimeError::FailedToReadMatrix {
+        source: e,
+        filename: synteny_matrix.to_owned(),
     })?;
 
     info!("Parsing divergence matrix");
     let divergence_matrix = &format!("{}/{}.dist", divergences, id);
-    let divergence = parse_dist_matrix(divergence_matrix, genes).map_err(|e| {
-        RuntimeError::FailedToReadMatrix { source: e, filename: divergence_matrix.to_owned() }
+    let divergence = parse_dist_matrix(
+        divergence_matrix,
+        genes,
+        ignore_missing.contains(&"sequence".to_string()),
+        f32::INFINITY,
+    )
+    .map_err(|e| RuntimeError::FailedToReadMatrix {
+        source: e,
+        filename: divergence_matrix.to_owned(),
     })?;
     let species2id = species_tree
         .leaves()
@@ -1684,6 +1713,7 @@ pub fn do_file(
     divergences: &str,
     settings: Settings,
     timings: &mut Option<File>,
+    ignore_missing: &[String],
 ) -> Result<String> {
     let mut species_tree = newick::one_from_filename(&speciestree_file)
         .with_context(|| anyhow!("while opening {}", speciestree_file.yellow().bold()))?;
@@ -1713,6 +1743,7 @@ pub fn do_file(
         syntenies,
         divergences,
         settings.merge_tandems,
+        ignore_missing,
     )?;
     let out_tree = do_family(id, &register, &logs_root)?;
     info!("Done in {:.2}s.", now.elapsed().as_secs_f32());

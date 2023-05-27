@@ -126,6 +126,10 @@ enum Commands {
         /// if set, merge tandem genes together and span them post-hoc
         #[clap(long)]
         merge_tandems: bool,
+
+        /// if enabled, replace missing values in distance matrices by their default
+        #[clap(long="ignore", value_parser=["synteny", "sequence"])]
+        ignore_missing: Vec<String>,
     },
 }
 
@@ -206,6 +210,7 @@ fn main() -> Result<()> {
             no_overwrite,
             database,
             merge_tandems,
+            ignore_missing,
         } => {
             let logs = "logs";
             let mut timings = if let Some(timings) = timings {
@@ -275,6 +280,7 @@ fn main() -> Result<()> {
                         &divergences,
                         settings,
                         &mut timings,
+                        &ignore_missing,
                     )?;
                     std::fs::File::create(out_file)?.write_all(tree.as_bytes())?
                 }
