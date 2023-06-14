@@ -1729,5 +1729,5 @@ pub fn do_file(
     chainsaw::annotate_mrcas(out_tree, &species_tree)?;
     chainsaw::annotate_duplications(out_tree, &species_tree, false);
 
-    Ok(Newick::to_newick(out_tree))
+    Ok(Newick::to_newick(out_tree, true))
 }
