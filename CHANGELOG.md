@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.13] - 2023-06-14
+
+### Miscellaneous Tasks
+
+- Update dependencies
+
+## [1.5.12] - 2023-06-14
+
+### Miscellaneous Tasks
+
+- Release sylvanite version 1.5.12
+
 ## [1.5.11] - 2023-06-14
 
 ### Miscellaneous Tasks
