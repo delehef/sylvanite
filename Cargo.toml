@@ -25,7 +25,7 @@ ordered-float = "3.4"
 rayon = "1.5"
 smallvec = "1.9"
 syntesuite = "0.2"
-thiserror = "1.0.38"
+thiserror = "1.0.37" # Do not update, Guix
 
 [package.metadata.release]
 tag-prefix = ""
