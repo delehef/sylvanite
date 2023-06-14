@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - Add git-cliff to dependencies
 - Update dependencies
+- Release sylvanite version 1.5.11
 
 ## [1.5.10] - 2023-04-27
 
