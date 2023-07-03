@@ -2,11 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] - 2023-07-03
+
+### Bug Fixes
+
+- Do not use non-initialized cache
+- Use a different ELC computation scheme
+
+### Features
+
+- Add a `--tracked` debug flag
+
+### Miscellaneous Tasks
+
+- Update dependencies
+
+### Hack
+
+- Give more leeway on the threshold
+
 ## [1.5.14] - 2023-06-14
 
 ### Miscellaneous Tasks
 
 - Downgrade dependency for Guix
+- Release sylvanite version 1.5.14
 
 ## [1.5.13] - 2023-06-14
 
@@ -19,15 +39,10 @@ All notable changes to this project will be documented in this file.
 
 ### Miscellaneous Tasks
 
-- Release sylvanite version 1.5.12
-
-## [1.5.11] - 2023-06-14
-
-### Miscellaneous Tasks
-
 - Add git-cliff to dependencies
 - Update dependencies
 - Release sylvanite version 1.5.11
+- Release sylvanite version 1.5.12
 
 ## [1.5.10] - 2023-04-27
 
