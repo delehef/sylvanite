@@ -1133,8 +1133,15 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                     .species_tree
                     .mrca(speciess[&to_graft].iter().chain(speciess[b].iter()).cloned())
                     .unwrap();
-                let elc = register.elc_from(speciess[&to_graft].iter().cloned(), mrca)
-                    + register.elc_from(speciess[b].iter().cloned(), mrca);
+                let elc = if speciess[&to_graft].is_disjoint(&speciess[b]) {
+                    register.elc_from(
+                        speciess[b].iter().cloned().chain(speciess[&to_graft].iter().cloned()),
+                        mrca,
+                    ) - register.elc_from(speciess[b].iter().cloned(), mrca)
+                } else {
+                    register.elc_from(speciess[b].iter().cloned(), mrca)
+                        + register.elc_from(speciess[&to_graft].iter().cloned(), mrca)
+                };
 
                 let synteny = leaves[&to_graft]
                     .iter()
