@@ -126,6 +126,10 @@ enum Commands {
         /// if set, merge tandem genes together and span them post-hoc
         #[clap(long)]
         merge_tandems: bool,
+
+        /// an optional set of comma-separated genes to track (for debug purposes)
+        #[clap(long, value_delimiter = ',')]
+        tracked: Vec<String>,
     },
 }
 
@@ -206,6 +210,7 @@ fn main() -> Result<()> {
             no_overwrite,
             database,
             merge_tandems,
+            tracked,
         } => {
             let logs = "logs";
             let mut timings = if let Some(timings) = timings {
@@ -275,6 +280,7 @@ fn main() -> Result<()> {
                         &divergences,
                         settings,
                         &mut timings,
+                        &tracked,
                     )?;
                     std::fs::File::create(out_file)?.write_all(tree.as_bytes())?
                 }

@@ -44,6 +44,7 @@ struct Register<'a> {
     extended: Vec<GeneID>,
     solos: Vec<GeneID>,
     fan_out: IntMap<GeneID, Vec<GeneID>>,
+    tracked: Vec<String>,
 }
 impl Register<'_> {
     fn size(&self) -> usize {
@@ -105,6 +106,7 @@ impl<'st> Register<'st> {
         } else {
             self.species_tree
                 .children(me)
+                .unwrap()
                 .iter()
                 .map(|n| self.rec_elc(*n, missings, only_large))
                 .sum()
@@ -204,6 +206,7 @@ fn make_register<'a>(
     syntenies: &str,
     divergences: &str,
     merge_tandems: bool,
+    tracked: &[String],
 ) -> Result<Register<'a>> {
     info!("Building register");
 
@@ -320,6 +323,7 @@ fn make_register<'a>(
         extended,
         solos,
         fan_out,
+        tracked: tracked.to_owned(),
     };
     Ok(register)
 }
@@ -527,7 +531,7 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
         .collect::<HashMap<_, _>>();
 
     for id in extended.iter() {
-        let log = ["ENSNSUP00000004150"].contains(&register.genes[*id].as_str());
+        let log = register.tracked.contains(&register.genes[*id]);
 
         let mut candidate_clusters = t
             .nodes()
@@ -616,23 +620,10 @@ fn grow_duplication(
         })
         .collect::<Vec<_>>();
     sources.get_mut(&seed_species).unwrap().clear();
-    let log = view(&register.genes, ds.iter().flat_map(|d| d.content.iter())).any(|s| {
-        [
-            "ENSDCDP00000006390",
-            "ENSHHUP00000059113",
-            "ENSOKIP00005017062",
-            "ENSOMYP00000060796",
-            "ENSOTSP00005012508",
-            "ENSPKIP00000011431",
-            "ENSSARP00000000739",
-            "ENSSGRP00000084880",
-            "ENSSSAP00000087432",
-            "ENSSTUP00000100855",
-        ]
-        .contains(&s.as_str())
-    });
+    let log = view(&register.genes, ds.iter().flat_map(|d| d.content.iter()))
+        .any(|s| register.tracked.contains(s));
     if log {
-        dbg!(seed_species);
+        debug!("Seed: {}", register.species_name(seed_species));
         ds.iter().for_each(|d| d.pretty(register))
     }
     let mut n = ds[0].root;
@@ -691,19 +682,19 @@ fn grow_duplication(
             }
         }
 
-        // if log {
-        //     for (i, pp) in putatives.iter().enumerate() {
-        //         for p in pp.iter() {
-        //             println!(
-        //                 "{} gets - {}/{} {}",
-        //                 i,
-        //                 register.species_name(p.1),
-        //                 register.proteins[p.0],
-        //                 p.2
-        //             );
-        //         }
-        //     }
-        // }
+        if log {
+            for (i, pp) in putatives.iter().enumerate() {
+                for p in pp.iter() {
+                    debug!(
+                        "Arm #{} gets {}/{} SYN: {}",
+                        i,
+                        register.species_name(p.1),
+                        register.genes[p.0],
+                        p.2
+                    );
+                }
+            }
+        }
 
         let mut dcss = VecMatrix::<f32>::with_elem(ds.len(), ds.len(), 0.);
         for i in 0..ds.len() {
@@ -715,7 +706,8 @@ fn grow_duplication(
             }
         }
         if log {
-            dbg!(&dcss);
+            debug!("DCSS:");
+            debug!("{}", &dcss);
         }
 
         let lengths = ds.iter().map(|d| d.species.len()).collect::<Vec<_>>();
@@ -742,9 +734,12 @@ fn grow_duplication(
                     .count() as f32;
             let filling_threshold = if total_span.len() <= 4 { 0.5 } else { 0.5 };
 
-            // if log {
-            //     dbg!(i, filling_threshold, filling, putative_dcss, best_dcs);
-            // }
+            if log {
+                debug!(
+                    "Arm #{} THR {:.3} FIL {:.3} PUT {:?} BST {:.3}",
+                    i, filling_threshold, filling, putative_dcss, best_dcs
+                );
+            }
             if (filling > filling_threshold)
                 && (!putatives[i].is_empty())
                 && best_dcs > OrderedFloat(0.)
@@ -800,7 +795,7 @@ fn create_duplications(
         .copied()
         .filter(|s| sources[s].len() > 1)
         .sorted_by_cached_key(|s| {
-            (-(sources[s].len() as i64), -register.species_tree.node_topological_depth(*s))
+            (-(sources[s].len() as i64), -register.species_tree.node_topological_depth(*s).unwrap())
         })
         .collect::<Vec<_>>();
     let duplicated_species =
@@ -860,7 +855,6 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
     let roots = t[1].children.clone();
 
     for &i in &roots {
-        let log = false; // view(&register.proteins, &t[i].content).any(|x| x == "ENSMSIP00000026938");
         let mut dups = create_duplications(register, t, i);
         dups.sort_by_cached_key(|f| {
             let all_species = f.iter().flat_map(|d| d.content.iter().map(|&x| register.species[x]));
@@ -886,10 +880,15 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
             f.sort_by_cached_key(|d| d.content.iter().unique_by(|g| register.species[**g]).count());
 
             while let Some(d) = f.pop() {
-                let log = view(&register.genes, &d.content).any(|x| x == "ENSMSIP00000026938");
+                let log = view(&register.genes, &d.content).any(|x| register.tracked.contains(x));
                 if log {
-                    println!("{} {}", register.genes[d.content[0]], register.species_name(d.root));
+                    info!(
+                        "Current arm: {} {}",
+                        register.genes[d.content[0]],
+                        register.species_name(d.root)
+                    );
                 }
+
                 let root_candidates = t
                     .descendants(i)
                     .iter()
@@ -1048,7 +1047,7 @@ struct GraftCriteria<F> {
 
 fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
     let to_keep = t[1].children.iter().map(|&k| t[k].tag).collect::<IntSet<_>>();
-    info!(
+    debug!(
         "Partially pruning tree, keeping {:?}",
         to_keep.iter().map(|&s| register.species_name(s)).collect_vec()
     );
@@ -1059,7 +1058,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
         .copied()
         .sorted_by_cached_key(|x| {
             (
-                -register.species_tree.node_topological_depth(t[*x].tag),
+                -register.species_tree.node_topological_depth(t[*x].tag).unwrap(),
                 (t.descendant_leaves(*x).len() as i64),
             )
         }) // .pop(), so implicit reverse ordering
@@ -1124,8 +1123,8 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
             );
         }
 
-        let log = false; //view(&register.proteins, &t.descendant_leaves(a))
-                         //.any(|s| ["ENSGACP00000018817", "ENSTRUP00000037889"].contains(&s.as_str()));
+        let log = view(&register.genes, t.descendant_leaves(to_graft))
+            .any(|s| register.tracked.contains(s));
         if log {
             println!("Injecting {}", register.species_name(t[to_graft].tag));
         }
@@ -1142,17 +1141,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
 
                 let synteny = leaves[&to_graft]
                     .iter()
-                    .map(|l| {
-                        if log {
-                            eprintln!(
-                                "{}/{} - {}",
-                                l,
-                                b,
-                                register.synteny.masked(&[*l], &leaves[b]).max()
-                            );
-                        }
-                        register.synteny.masked(&[*l], &leaves[b]).max()
-                    })
+                    .map(|l| register.synteny.masked(&[*l], &leaves[b]).max())
                     .sum::<f32>()
                     / leaves[&to_graft].len() as f32;
                 let divergence = register.divergence.masked(&leaves[&to_graft], &leaves[b]).min();
@@ -1175,11 +1164,9 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                 let bb = &b.1;
                 let b = b.0;
                 info!(
-                    "{:20} {:4}/{:4} ({:3}/{:3} leaves) DELC: {:2} SYN: {:2.2} DV: {:2.2} T: {} {}",
-                    register.species_name(t[*b].tag),
+                    "{:4}/{:4} ({:4} leaves) DELC: {:2} SYN: {:2.2} DV: {:2.2} T: {} {}",
                     b,
                     context_nodes[b],
-                    t.descendant_leaves(*b).len(),
                     leaves[b].len(),
                     bb.elc,
                     bb.synteny,
@@ -1477,6 +1464,7 @@ fn reconcile(
             let actual_children = register
                 .species_tree
                 .children(phylo_node)
+                .unwrap()
                 .iter()
                 .filter(|child| {
                     full || !speciess.is_disjoint(&HashSet::from_iter(
@@ -1536,7 +1524,7 @@ fn reconcile_upstream(
         } else {
             let me = t.add_node(&[], phylo_node, Some(parent));
             assert!(me != existing);
-            for child in register.species_tree.children(phylo_node).iter() {
+            for child in register.species_tree.children(phylo_node).unwrap().iter() {
                 if *child == t[existing].tag {
                     t.move_node(existing, me);
                 } else {
@@ -1611,14 +1599,13 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
 
     info!("Resolving duplications...");
     resolve_duplications(&mut tree, register);
+    for s in satellites.iter().chain(register.solos.iter()) {
+        tree.add_node(&[*s], register.species[*s], Some(root));
+    }
     info!("Done.");
     File::create(&format!("{}/{}_prototree.nwk", &logs_root, id))?.write_all(
         tree.to_newick(&|l| register.make_label(*l), &|t| register.species_name(*t)).as_bytes(),
     )?;
-
-    for s in satellites.iter().chain(register.solos.iter()) {
-        tree.add_node(&[*s], register.species[*s], Some(root));
-    }
 
     info!("Assembling final tree -- {} subtrees", tree[root].children.len());
     tree.enable_leave_cache();
@@ -1684,6 +1671,7 @@ pub fn do_file(
     divergences: &str,
     settings: Settings,
     timings: &mut Option<File>,
+    tracked: &[String],
 ) -> Result<String> {
     let mut species_tree = newick::one_from_filename(&speciestree_file)
         .with_context(|| anyhow!("while opening {}", speciestree_file.yellow().bold()))?;
@@ -1713,6 +1701,7 @@ pub fn do_file(
         syntenies,
         divergences,
         settings.merge_tandems,
+        tracked,
     )?;
     let out_tree = do_family(id, &register, &logs_root)?;
     info!("Done in {:.2}s.", now.elapsed().as_secs_f32());

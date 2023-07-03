@@ -22,7 +22,7 @@ impl<T: Debug> Debug for VecMatrix<T> {
         writeln!(f)?;
         for i in 0..self.r {
             for j in 0..self.c {
-                write!(f, "{:10?}", self[(i, j)])?;
+                write!(f, "{:10.3?}", self[(i, j)])?;
             }
             writeln!(f)?;
         }
