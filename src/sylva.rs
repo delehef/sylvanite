@@ -1548,7 +1548,7 @@ fn reconcile_upstream(
 
 fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<PolytomicGeneTree> {
     info!("Optimizing threshold");
-    let tt = find_threshold(register);
+    let tt = find_threshold(register) - 0.1;
 
     let mut tree = PolytomicGeneTree::new();
     let root = tree.add_node(&[], 0, None);
