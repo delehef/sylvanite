@@ -895,22 +895,19 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
                     .copied()
                     .filter(|n| t[*n].tag == d.root)
                     .sorted_by_cached_key(|n| {
-                        let leaves = t.descendant_leaves(*n);
+                        let leaves = t.full_descendant_leaves(*n);
                         let synteny = if leaves.is_empty() {
                             OrderedFloat(0.0)
                         } else {
                             OrderedFloat(
                                 register
                                     .synteny
-                                    .masked_from_iter(
-                                        d.content.iter().cloned(),
-                                        leaves.into_iter().cloned(),
-                                    )
+                                    .masked_from_iter(d.content.iter().cloned(), leaves.into_iter())
                                     .max(),
                             )
                         };
                         let t_depth = t.topo_depth(*n) as i64;
-                        (-t_depth, -synteny)
+                        (-synteny, -t_depth)
                     })
                     .collect::<Vec<_>>();
 
@@ -923,7 +920,7 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
                                 .synteny
                                 .masked_from_iter(
                                     d.content.iter().cloned(),
-                                    t.descendant_leaves(c).iter().cloned()
+                                    t.full_descendant_leaves(c).iter().cloned()
                                 )
                                 .max()
                         );
