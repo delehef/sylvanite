@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.1] - 2023-07-16
+
+### Miscellaneous Tasks
+
+- Update dependencies
+
 ## [1.6.0] - 2023-07-03
 
 ### Bug Fixes
@@ -16,6 +22,7 @@ All notable changes to this project will be documented in this file.
 ### Miscellaneous Tasks
 
 - Update dependencies
+- Release sylvanite version 1.6.0
 
 ### Hack
 
