@@ -239,7 +239,7 @@ fn make_register<'a>(
                     ax.push(vec![i]);
                 } else {
                     let same_last =
-                        g.left_landscape.last().map(|f| *f == g.family).unwrap_or(false);
+                        g.left_landscape.last().map(|f| f.family == g.family).unwrap_or(false);
                     if same_last {
                         ax.last_mut().unwrap().push(i);
                     } else {
