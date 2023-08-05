@@ -58,7 +58,7 @@ struct Duplication {
     species: HashSet<SpeciesID>,
 }
 impl Duplication {
-    pub fn pretty<'a>(&self, register: &'a Register) {
+    fn pretty<'a>(&self, register: &'a Register) {
         println!(
             "  {:?}",
             view(&register.genes, &self.content).cloned().collect::<Vec<String>>().join(" ")
@@ -77,18 +77,18 @@ impl Duplication {
 type Duplications = Vec<Duplication>;
 
 impl<'st> Register<'st> {
-    pub fn species_name(&self, x: SpeciesID) -> String {
+    fn species_name(&self, x: SpeciesID) -> String {
         if x > 0 {
             self.species_tree.name(x).map(|x| x.to_string()).unwrap_or_else(|| "UNKNWN".to_string())
         } else {
             "UNKNWN".into()
         }
     }
-    pub fn span(&self, mrca: SpeciesID) -> &IntSet<SpeciesID> {
+    fn span(&self, mrca: SpeciesID) -> &IntSet<SpeciesID> {
         self.species_tree.cached_leaves_of(mrca)
     }
 
-    pub fn mrca_span<'a>(&self, species: impl IntoIterator<Item = usize>) -> &IntSet<SpeciesID> {
+    fn mrca_span<'a>(&self, species: impl IntoIterator<Item = usize>) -> &IntSet<SpeciesID> {
         self.span(self.species_tree.mrca(species).unwrap())
     }
 
@@ -112,7 +112,7 @@ impl<'st> Register<'st> {
         }
     }
 
-    pub fn elc<'a, Iter>(&self, species: Iter) -> i64
+    fn elc<'a, Iter>(&self, species: Iter) -> i64
     where
         Iter: IntoIterator<Item = usize>,
         Iter::IntoIter: Clone,
@@ -123,7 +123,7 @@ impl<'st> Register<'st> {
         self.elc_from(species.clone(), mrca)
     }
 
-    pub fn elc_from<'a>(&self, species: impl IntoIterator<Item = usize>, mrca: SpeciesID) -> i64 {
+    fn elc_from<'a>(&self, species: impl IntoIterator<Item = usize>, mrca: SpeciesID) -> i64 {
         let species: IntSet<SpeciesID> = species.into_iter().collect();
         if species.is_empty() {
             return 0;
@@ -138,7 +138,7 @@ impl<'st> Register<'st> {
     }
 
     #[allow(dead_code)]
-    pub fn ellc<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> i64 {
+    fn ellc<'a>(&self, species: impl IntoIterator<Item = &'a usize>) -> i64 {
         let species: Vec<SpeciesID> = species.into_iter().copied().collect();
         let mrca = self.species_tree.mrca(species.iter().cloned()).unwrap(); // FIXME
         let mut missings = IntSet::<SpeciesID>::from_iter(self.span(mrca).iter().copied())
@@ -152,7 +152,7 @@ impl<'st> Register<'st> {
         }
     }
 
-    pub fn make_label(&self, x: GeneID) -> String {
+    fn make_label(&self, x: GeneID) -> String {
         format!("{}[&&NHX:S={}]", &self.genes[x], self.species_name(self.species[x]))
     }
 }
@@ -1640,12 +1640,7 @@ pub fn do_file(
         .with_context(|| anyhow!("while opening {}", speciestree_file.yellow().bold()))?;
     species_tree.cache_leaves();
 
-    let gene_families =
-        read_genefile(filename).with_context(|| format!("while parsing {}", filename))?;
-    if gene_families.is_empty() || gene_families.len() > 1 {
-        bail!("{} should contain a single family", filename)
-    }
-    let family = &gene_families[0];
+    let family = read_genefile(filename).with_context(|| format!("while parsing {}", filename))?;
     let id = &std::path::Path::new(filename)
         .file_stem()
         .with_context(|| "asdfasdf")?
@@ -1658,8 +1653,8 @@ pub fn do_file(
     let now = Instant::now();
     let register = make_register(
         id,
-        family,
-        &GeneBook::cached(db_file, settings.window, "id", family)?,
+        &family,
+        &GeneBook::cached(db_file, settings.window, "id", &family)?,
         &species_tree,
         syntenies,
         divergences,

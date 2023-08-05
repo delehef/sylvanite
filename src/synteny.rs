@@ -28,12 +28,11 @@ pub fn process_file(
     }
     let outfile = outdir.join(Path::new(filename).with_extension("dist").file_name().unwrap());
 
-    let gene_families = crate::utils::read_genefile(filename)?;
-    if gene_families.is_empty() || gene_families.len() > 1 {
+    let ids = crate::utils::read_genefile(filename)?;
+    if ids.is_empty() || ids.len() > 1 {
         bail!("{} should contain a single family", filename)
     }
-    let ids = &gene_families[0];
-    let book = GeneBook::cached(db_file, window, "id", ids)?;
+    let book = GeneBook::cached(db_file, window, "id", &ids)?;
 
     let n = ids.len();
     let m = Mutex::new(vec![0f32; n * (n - 1) / 2]);
@@ -69,7 +68,7 @@ pub fn process_file(
 
     write_dist_matrix(
         &m.into_inner().expect("BROKEN MUTEX"),
-        ids,
+        &ids,
         BufWriter::with_capacity(30_000_000, Box::new(File::create(&outfile)?)),
     )?;
     Ok(outfile)

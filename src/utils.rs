@@ -85,26 +85,21 @@ pub(crate) fn write_dist_matrix<'a, T: std::fmt::Display, L: std::fmt::Display>(
     Ok(out.flush()?)
 }
 
-pub(crate) fn read_genefile(filename: &str) -> Result<Vec<Vec<String>>> {
+pub(crate) fn read_genefile(filename: &str) -> Result<Vec<String>> {
     let mut filecontent = String::new();
     File::open(filename)
         .map_err(|e| errors::FileError::CannotOpen { source: e, filename: filename.into() })?
         .read_to_string(&mut filecontent)?;
     let filecontent = filecontent.trim();
     if filecontent.starts_with('(') && filecontent.ends_with(';') {
-        let trees = newick::from_string(&filecontent)?;
-        trees
-            .into_iter()
-            .map(|tree| {
-                tree.leaves()
-                    .map(|l| {
-                        tree.name(l)
-                            .map(|s| s.to_owned())
-                            .with_context(|| format!("nameless leaf found in {:?}", filename))
-                    })
-                    .collect::<Result<Vec<_>>>()
+        let tree = newick::one_from_string(&filecontent)?;
+        tree.leaves()
+            .map(|l| {
+                tree.name(l)
+                    .map(|s| s.to_owned())
+                    .with_context(|| format!("nameless leaf found in {:?}", filename))
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()
     } else {
         Ok(vec![filecontent.split('\n').map(|s| s.to_owned()).collect()])
     }
