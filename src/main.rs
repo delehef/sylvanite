@@ -11,6 +11,7 @@ mod align;
 mod dede;
 mod errors;
 mod polytomic_tree;
+mod species;
 mod sylva;
 mod synteny;
 mod utils;
@@ -130,6 +131,20 @@ enum Commands {
         /// an optional set of comma-separated genes to track (for debug purposes)
         #[clap(long, value_delimiter = ',')]
         tracked: Vec<String>,
+    },
+    /// Create a species tree from a gene families and synteny informations
+    BuildSpeciesTree {
+        /// the path to the genomes database; to be built with `build-database`
+        #[clap(short = 'D', long)]
+        database: String,
+
+        /// a folder containing or a list of gene family files to infer the species tree from
+        #[clap(required = true)]
+        bags: Vec<String>,
+
+        /// where to find the syntenic distance matrices; can be a file or a path
+        #[clap(short, long, required = true)]
+        syntenies: String,
     },
 }
 
@@ -288,5 +303,6 @@ fn main() -> Result<()> {
 
             Ok(())
         }
+        Commands::BuildSpeciesTree { database, bags, syntenies } => todo!(),
     }
 }
