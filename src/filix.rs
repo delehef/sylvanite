@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     io::BufWriter,
+    path::Path,
 };
 
 use anyhow::*;
@@ -16,7 +17,7 @@ use syntesuite::genebook::GeneBook;
 use crate::{
     dede::{Matrix, VecMatrix},
     errors::{self, RuntimeError},
-    utils::{parse_dist_matrix_from_sim, read_genefile},
+    utils::{jaccard, parse_dist_matrix_from_sim, read_genefile},
 };
 
 /// A phylogeny representing a .newick file.
@@ -92,13 +93,12 @@ fn nj(m: &VecMatrix<f32>, ids: &[String]) -> Phylogeny {
 
     while active.len() > 2 {
         let sum_d = |i: usize| -> f32 { active.iter().map(|&k| distances[(i, k)]).sum::<f32>() };
+        let sum_ds: IntMap<usize, f32> = active.iter().map(|&k| (k, sum_d(k))).collect();
 
         // Find i,j for which Q(i,j) is minimal.
         let q = |&(&i, &j): &(&usize, &usize)| -> NotNan<f32> {
-            let r =
-                NotNan::new((active.len() - 2) as f32 * distances[(i, j)] - sum_d(i) - sum_d(j))
-                    .unwrap();
-            r
+            NotNan::new((active.len() - 2) as f32 * distances[(i, j)] - sum_ds[&i] - sum_ds[&j])
+                .unwrap()
         };
 
         // Find minimal distance pair.
@@ -112,7 +112,8 @@ fn nj(m: &VecMatrix<f32>, ids: &[String]) -> Phylogeny {
         let (i, j) = (i.min(j), i.max(j));
 
         // Compute distance from merged vertex to the nodes being merged.
-        let di = distances[(i, j)] / 2. + (sum_d(i) - sum_d(j)) / (2. * (active.len() as f32 - 2.));
+        let di =
+            distances[(i, j)] / 2. + (sum_ds[&i] - sum_ds[&j]) / (2. * (active.len() as f32 - 2.));
         let dj = distances[(i, j)] - di;
 
         // Remove j from positions considered in later iterations.
@@ -171,7 +172,9 @@ pub(crate) fn build_species_tree(
     // 1. Create one approximate gene tree per bag
     info!("Approximating gene trees");
     let genes_trees = bags_files
-        .par_iter()
+        .iter()
+        .sorted_by_cached_key(|f| -(std::fs::metadata(Path::new(f)).unwrap().len() as i64))
+        .par_bridge()
         .map(|f| {
             make_approximate_gene_tree(f, &book, syntenies)
                 .with_context(|| anyhow!("while processing {}", f))
@@ -189,22 +192,31 @@ pub(crate) fn build_species_tree(
     ) {
         let children = t.children(n).unwrap();
         // TODO: skip duplicated nodes?
-        for c in children {
-            let species = t
-                .leaves_of(*c)
-                .iter()
-                .map(|l| t.get(*l).unwrap().data().name.clone().unwrap())
-                .collect::<HashSet<_>>();
-            for s1 in species.iter() {
-                for s2 in species.iter() {
-                    if s1 != s2 {
-                        let i = species2id[s1];
-                        let j = species2id[s2];
-                        m[(i, j)] += 1.; // TODO: normalize by tree size?
+        let found_species = children
+            .iter()
+            .map(|c| {
+                t.leaves_of(*c)
+                    .iter()
+                    .map(|l| t.get(*l).unwrap().data().name.clone().unwrap())
+                    .collect::<HashSet<_>>()
+            })
+            .collect::<Vec<_>>();
+        if jaccard(&found_species[0], &found_species[1]) <= 0.5 {
+            for c in 0..children.len() {
+                for s1 in found_species[c].iter() {
+                    for s2 in found_species[c].iter() {
+                        if s1 != s2 {
+                            let i = species2id[s1];
+                            let j = species2id[s2];
+                            m[(i, j)] += 1. - 1. / found_species[c].len() as f32;
+                            // TODO: normalize by tree size?
+                        }
                     }
                 }
             }
+        }
 
+        for c in children {
             rec_insert(t, *c, m, species2id);
         }
     }
