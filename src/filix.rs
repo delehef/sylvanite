@@ -201,15 +201,17 @@ pub(crate) fn build_species_tree(
                     .collect::<HashSet<_>>()
             })
             .collect::<Vec<_>>();
-        if jaccard(&found_species[0], &found_species[1]) <= 0.5 {
-            for c in 0..children.len() {
-                for s1 in found_species[c].iter() {
-                    for s2 in found_species[c].iter() {
-                        if s1 != s2 {
-                            let i = species2id[s1];
-                            let j = species2id[s2];
-                            m[(i, j)] += 1. - 1. / found_species[c].len() as f32;
-                            // TODO: normalize by tree size?
+        if found_species.len() > 0 {
+            if jaccard(&found_species[0], &found_species[1]) <= 0.5 {
+                for c in 0..children.len() {
+                    for s1 in found_species[c].iter() {
+                        for s2 in found_species[c].iter() {
+                            if s1 != s2 {
+                                let i = species2id[s1];
+                                let j = species2id[s2];
+                                m[(i, j)] += 1. - 1. / found_species[c].len() as f32;
+                                // TODO: normalize by tree size?
+                            }
                         }
                     }
                 }
