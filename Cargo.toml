@@ -32,3 +32,6 @@ tag-prefix = ""
 publish = false
 pre-release-hook = ["git-cliff", "-o", "CHANGELOG.md", "--tag", "{{version}}"]
 allow-branch = ["master"]
+
+[profile.release]
+debug = true

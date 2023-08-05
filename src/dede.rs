@@ -56,6 +56,15 @@ impl<T> VecMatrix<T> {
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.m.iter()
     }
+
+    pub fn raw(&self) -> &[T] {
+        &self.m
+    }
+}
+impl<T: Default + Clone> VecMatrix<T> {
+    pub fn new_zero(r: usize, c: usize) -> VecMatrix<T> {
+        VecMatrix { m: vec![T::default(); r * c], r, c }
+    }
 }
 
 impl<T> Matrix<T> for VecMatrix<T> {

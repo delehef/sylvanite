@@ -1,6 +1,7 @@
 use anyhow::*;
 use clap::{ArgGroup, Parser, Subcommand};
 use log::*;
+use newick::Newick;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
@@ -138,11 +139,11 @@ enum Commands {
         #[clap(short = 'D', long)]
         database: String,
 
-        /// a folder containing or a list of gene family files to infer the species tree from
+        /// one or more files or folders containing gene family files to infer the species tree from
         #[clap(required = true)]
         bags: Vec<String>,
 
-        /// where to find the syntenic distance matrices; can be a file or a path
+        /// where to find the syntenic distance matrices
         #[clap(short, long, required = true)]
         syntenies: String,
     },
@@ -303,6 +304,12 @@ fn main() -> Result<()> {
 
             Ok(())
         }
-        Commands::BuildSpeciesTree { database, bags, syntenies } => todo!(),
+        Commands::BuildSpeciesTree { database, bags, syntenies } => {
+            let bags = paths2files(&bags)?;
+            let species_tree = filix::build_species_tree(&database, &bags, &syntenies)?;
+            std::fs::File::create("species.nhx")?
+                .write_all(Newick::to_newick(&species_tree, true).as_bytes())?;
+            Ok(())
+        }
     }
 }
