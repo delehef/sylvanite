@@ -101,6 +101,6 @@ pub(crate) fn read_genefile(filename: &str) -> Result<Vec<String>> {
             })
             .collect::<Result<Vec<_>>>()
     } else {
-        Ok(vec![filecontent.split('\n').map(|s| s.to_owned()).collect()])
+        Ok(filecontent.split('\n').map(|s| s.to_owned()).collect())
     }
 }
