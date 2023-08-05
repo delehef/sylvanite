@@ -4,8 +4,10 @@ use std::{
 };
 
 use anyhow::*;
+use identity_hash::IntMap;
 use itertools::Itertools;
 use log::*;
+use logging_timer::time;
 use newick::{NewickTree, NodeID};
 use ordered_float::NotNan;
 use rayon::prelude::*;
@@ -135,6 +137,7 @@ fn nj(m: &VecMatrix<f32>, ids: &[String]) -> Phylogeny {
     parts[0].take().unwrap()
 }
 
+#[time]
 fn make_approximate_gene_tree(f: &str, book: &GeneBook, syntenies: &str) -> Result<NewickTree> {
     let family = read_genefile(f).with_context(|| anyhow!("while parsing {}", f))?;
     let family_species =
@@ -197,7 +200,7 @@ pub(crate) fn build_species_tree(
                     if s1 != s2 {
                         let i = species2id[s1];
                         let j = species2id[s2];
-                        m[(i, j)] += 1.;
+                        m[(i, j)] += 1.; // TODO: normalize by tree size?
                     }
                 }
             }
