@@ -154,8 +154,11 @@ fn make_approximate_gene_tree(f: &str, book: &GeneBook, syntenies: &str) -> Resu
         RuntimeError::FailedToReadMatrix { source: e, filename: synteny_matrix.to_owned() }
     })?;
 
-    info!("===== Family {} -- {} proteins =====", id, family.len());
-    Ok(nj(&synteny, &family_species).to_newick())
+    info!("===== Family {} -- {} genes", id, family.len());
+
+    let mut r = nj(&synteny, &family_species).to_newick();
+    r.cache_leaves();
+    Ok(r)
 }
 
 const WINDOW_SIZE: usize = 15;
@@ -195,14 +198,14 @@ pub(crate) fn build_species_tree(
         let found_species = children
             .iter()
             .map(|c| {
-                t.leaves_of(*c)
+                t.cached_leaves_of(*c)
                     .iter()
                     .map(|l| t.get(*l).unwrap().data().name.clone().unwrap())
                     .collect::<HashSet<_>>()
             })
             .collect::<Vec<_>>();
         if found_species.len() > 0 {
-            if jaccard(&found_species[0], &found_species[1]) <= 0.5 {
+            if found_species[0].intersection(&found_species[1]).count() == 0 {
                 for c in 0..children.len() {
                     for s1 in found_species[c].iter() {
                         for s2 in found_species[c].iter() {
@@ -210,7 +213,6 @@ pub(crate) fn build_species_tree(
                                 let i = species2id[s1];
                                 let j = species2id[s2];
                                 m[(i, j)] += 1. - 1. / found_species[c].len() as f32;
-                                // TODO: normalize by tree size?
                             }
                         }
                     }
