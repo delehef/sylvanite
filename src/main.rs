@@ -26,7 +26,7 @@ struct Cli {
     #[clap(long)]
     cache_db: bool,
 
-    #[clap(short, long, default_value_t = 15)]
+    #[clap(short, long, global = true, default_value_t = 15)]
     window: usize,
 
     #[clap(short, long, default_value_t = 0)]

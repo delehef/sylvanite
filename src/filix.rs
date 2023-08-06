@@ -17,7 +17,7 @@ use syntesuite::genebook::GeneBook;
 use crate::{
     dede::{Matrix, VecMatrix},
     errors::{self, RuntimeError},
-    utils::{parse_dist_matrix_from_sim, read_genefile},
+    utils::{parse_dist_matrix, parse_dist_matrix_from_sim, read_genefile},
 };
 
 /// A phylogeny representing a .newick file.
@@ -274,7 +274,7 @@ pub(crate) fn build_species_tree(
                 .ok_or_else(|| errors::FileError::InvalidFilename(format!("{:?}", f)))?;
 
             let synteny_matrix = &format!("{}/{}.dist", syntenies, id);
-            let synteny = parse_dist_matrix_from_sim(synteny_matrix, &family).map_err(|e| {
+            let synteny = parse_dist_matrix(synteny_matrix, &family).map_err(|e| {
                 RuntimeError::FailedToReadMatrix { source: e, filename: synteny_matrix.to_owned() }
             })?;
 
@@ -308,6 +308,12 @@ pub(crate) fn build_species_tree(
                 meta_matrix[(i, j)] += val;
                 meta_matrix[(j, i)] += val;
             }
+        }
+    }
+    let max_distance = meta_matrix.iter().fold(0f32, |a, &b| a.max(b)); // TODO: replace with NaNFloat
+    for i in 0..meta_matrix.nrows() {
+        for j in 0..meta_matrix.ncols() {
+            meta_matrix[(i, j)] = 1. - meta_matrix[(i, j)] / max_distance;
         }
     }
     crate::utils::write_matrix(

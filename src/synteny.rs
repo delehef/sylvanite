@@ -29,8 +29,8 @@ pub fn process_file(
     let outfile = outdir.join(Path::new(filename).with_extension("dist").file_name().unwrap());
 
     let ids = crate::utils::read_genefile(filename)?;
-    if ids.is_empty() || ids.len() > 1 {
-        bail!("{} should contain a single family", filename)
+    if ids.is_empty() {
+        bail!("{} is empty", filename)
     }
     let book = GeneBook::cached(db_file, window, "id", &ids)?;
 
