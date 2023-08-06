@@ -17,7 +17,7 @@ use syntesuite::genebook::GeneBook;
 use crate::{
     dede::{Matrix, VecMatrix},
     errors::{self, RuntimeError},
-    utils::{jaccard, parse_dist_matrix_from_sim, read_genefile},
+    utils::{parse_dist_matrix_from_sim, read_genefile},
 };
 
 /// A phylogeny representing a .newick file.
@@ -162,7 +162,7 @@ fn make_approximate_gene_tree(f: &str, book: &GeneBook, syntenies: &str) -> Resu
 }
 
 const WINDOW_SIZE: usize = 15;
-pub(crate) fn build_species_tree(
+pub(crate) fn build_species_tree_old(
     db_file: &str,
     bags_files: &[String],
     syntenies: &str,
@@ -232,6 +232,82 @@ pub(crate) fn build_species_tree(
     for i in 0..meta_matrix.nrows() {
         for j in 0..meta_matrix.ncols() {
             meta_matrix[(i, j)] = 1. - meta_matrix[(i, j)] / max_distance;
+        }
+    }
+    crate::utils::write_matrix(
+        &meta_matrix,
+        &species,
+        BufWriter::new(Box::new(std::fs::File::create("meta.dist").unwrap())),
+    )?;
+
+    // 3. Use NJ to generate the final tree
+    info!("Computing species tree");
+    Ok(nj(&meta_matrix, &species).to_newick())
+}
+
+pub(crate) fn build_species_tree(
+    db_file: &str,
+    bags_files: &[String],
+    syntenies: &str,
+) -> Result<NewickTree> {
+    let book = &GeneBook::in_memory(db_file, WINDOW_SIZE, "id")?;
+    let species = book.species();
+    let species2id: HashMap<String, usize> =
+        species.iter().enumerate().map(|(i, s)| (s.to_owned(), i)).collect();
+
+    // 1. Create one approximate gene tree per bag
+    info!("Approximating gene trees");
+    let matrices = bags_files
+        .iter()
+        .sorted_by_cached_key(|f| -(std::fs::metadata(Path::new(f)).unwrap().len() as i64))
+        .par_bridge()
+        .map(|f| {
+            let family = read_genefile(f).with_context(|| anyhow!("while parsing {}", f))?;
+            let family_species = family
+                .iter()
+                .map(|g| book.get(g).map(|r| r.species))
+                .collect::<Result<Vec<_>>>()?;
+            let id = &std::path::Path::new(f)
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .ok_or_else(|| errors::FileError::InvalidFilename(format!("{:?}", f)))?;
+
+            let synteny_matrix = &format!("{}/{}.dist", syntenies, id);
+            let synteny = parse_dist_matrix_from_sim(synteny_matrix, &family).map_err(|e| {
+                RuntimeError::FailedToReadMatrix { source: e, filename: synteny_matrix.to_owned() }
+            })?;
+
+            info!("===== Family {} -- {} genes", id, family.len());
+            let mut partial_matrix = VecMatrix::<f32>::new_zero(species.len(), species.len());
+            for (pi, s1) in family_species.iter().enumerate() {
+                let si = species2id[s1];
+                for (pj, s2) in family_species.iter().enumerate() {
+                    let sj = species2id[s2];
+                    let val = synteny[(pi, pj)];
+                    partial_matrix[(si, sj)] += val;
+                    partial_matrix[(sj, si)] += val;
+                }
+            }
+
+            Ok((family.len(), partial_matrix))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    // 2. Generate an aggregated distance matrix from these trees
+    info!("Computing meta-matrix");
+    let mut meta_matrix = VecMatrix::<f32>::new_zero(species.len(), species.len());
+    let big_n = matrices.iter().map(|(n, _)| *n).max().unwrap() as f32;
+    for (n, m) in matrices.iter() {
+        assert!(m.nrows() == m.ncols());
+        assert!(m.nrows() == meta_matrix.nrows());
+        let coef = *n as f32 / big_n;
+        for i in 0..meta_matrix.nrows() {
+            for j in 0..i {
+                let val = coef * m[(i, j)];
+                meta_matrix[(i, j)] += val;
+                meta_matrix[(j, i)] += val;
+            }
         }
     }
     crate::utils::write_matrix(
