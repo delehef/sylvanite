@@ -90,7 +90,7 @@ enum Commands {
         species_pattern: String,
     },
     /// Create gene family trees from gene families, syntenic & sequence distance matrices, and syntenic database
-    BuildTrees {
+    Sylva {
         /// the path to the genomes database; to be built with `build-database`
         #[clap(short = 'D', long)]
         database: String,
@@ -126,6 +126,10 @@ enum Commands {
         /// if set, merge tandem genes together and span them post-hoc
         #[clap(long)]
         merge_tandems: bool,
+
+        /// if set, use sequence information rather than synteny sequence to resolve duplication arms
+        #[clap(long)]
+        dups_from_sequence: bool,
 
         /// an optional set of comma-separated genes to track (for debug purposes)
         #[clap(long, value_delimiter = ',')]
@@ -200,7 +204,7 @@ fn main() -> Result<()> {
                 unreachable!()
             }
         }
-        Commands::BuildTrees {
+        Commands::Sylva {
             species_tree,
             syntenies,
             divergences,
@@ -211,6 +215,7 @@ fn main() -> Result<()> {
             database,
             merge_tandems,
             tracked,
+            dups_from_sequence,
         } => {
             let logs = "logs";
             let mut timings = if let Some(timings) = timings {
@@ -271,6 +276,7 @@ fn main() -> Result<()> {
                         logs: logs.to_string(),
                         window: args.window,
                         merge_tandems,
+                        dups_from_sequence,
                     };
                     let tree = sylva::do_file(
                         &f,

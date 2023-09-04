@@ -31,7 +31,15 @@ fn round(x: f32, d: i8) -> f32 {
     (x * ten).round() / ten
 }
 
+pub struct Settings {
+    pub logs: String,
+    pub window: usize,
+    pub merge_tandems: bool,
+    pub dups_from_sequence: bool,
+}
+
 struct Register<'a> {
+    settings: Settings,
     landscape_size: Vec<usize>,
     core: Vec<GeneID>,
     core_set: IntSet<GeneID>,
@@ -205,8 +213,8 @@ fn make_register<'a>(
     species_tree: &'a NewickTree,
     syntenies: &str,
     divergences: &str,
-    merge_tandems: bool,
     tracked: &[String],
+    settings: Settings,
 ) -> Result<Register<'a>> {
     info!("Building register");
 
@@ -234,7 +242,7 @@ fn make_register<'a>(
         .enumerate()
         .sorted_by_cached_key(|(_, g)| (g.species.clone(), g.chr.clone(), g.pos))
         .fold(vec![], |mut ax, (i, g)| {
-            if merge_tandems {
+            if settings.merge_tandems {
                 if ax.is_empty() {
                     ax.push(vec![i]);
                 } else {
@@ -311,6 +319,7 @@ fn make_register<'a>(
             .filter(|i| !secondary_tandems.contains(i)),
     );
     let register = Register {
+        settings,
         landscape_size: landscape_sizes,
         core: core.iter().cloned().collect_vec(),
         core_set: core,
@@ -606,6 +615,20 @@ fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Metric {
+    Synteny(OrderedFloat<f32>),
+    Sequence(OrderedFloat<f32>),
+}
+impl Metric {
+    fn to_furthest(&self) -> OrderedFloat<f32> {
+        match self {
+            Metric::Synteny(synteny) => -synteny,
+            Metric::Sequence(sequence) => *sequence,
+        }
+    }
+}
+
 fn grow_duplication(
     sources: &mut HashMap<SpeciesID, Vec<GeneID>>,
     seed_species: SpeciesID,
@@ -637,7 +660,7 @@ fn grow_duplication(
         struct Link {
             arm: usize,
             gene: GeneID,
-            synteny: OrderedFloat<f32>,
+            metric: Metric,
             species: SpeciesID,
         }
         let mut filled = HashMap::<(usize, SpeciesID), bool>::new();
@@ -658,18 +681,28 @@ fn grow_duplication(
                 });
 
                 for c in candidates {
-                    let synteny = OrderedFloat(register.synteny.masked(&[*c], &d.content).max());
-                    links.push(Link { arm: i, gene: *c, synteny, species });
+                    let metric = if register.settings.dups_from_sequence {
+                        Metric::Sequence(OrderedFloat(
+                            register.divergence.masked(&[*c], &d.content).min(),
+                        ))
+                    } else {
+                        Metric::Synteny(OrderedFloat(
+                            register.synteny.masked(&[*c], &d.content).max(),
+                        ))
+                    };
+                    links.push(Link { arm: i, gene: *c, metric, species });
                 }
             }
         }
-        links.sort_by_key(|l| (-i64::try_from(ds[l.arm].content.len()).unwrap(), -l.synteny));
+        links.sort_by_key(|l| {
+            (-i64::try_from(ds[l.arm].content.len()).unwrap(), l.metric.to_furthest())
+        });
 
         for l in links {
             if !filled.get(&(l.arm, l.species)).unwrap_or(&false)
                 && sources[&l.species].contains(&l.gene)
             {
-                putatives[l.arm].push((l.gene, l.species, *l.synteny));
+                putatives[l.arm].push((l.gene, l.species, l.metric));
                 sources.get_mut(&l.species).unwrap().retain(|x| *x != l.gene);
                 filled.insert((l.arm, l.species), true);
             }
@@ -686,7 +719,7 @@ fn grow_duplication(
             for (i, pp) in putatives.iter().enumerate() {
                 for p in pp.iter() {
                     debug!(
-                        "Arm #{} gets {}/{} SYN: {}",
+                        "Arm #{} gets {}/{} SYN: {:?}",
                         i,
                         register.species_name(p.1),
                         register.genes[p.0],
@@ -1661,12 +1694,6 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
     Ok(tree)
 }
 
-pub struct Settings {
-    pub logs: String,
-    pub window: usize,
-    pub merge_tandems: bool,
-}
-
 pub fn do_file(
     filename: &str,
     speciestree_file: &str,
@@ -1704,8 +1731,8 @@ pub fn do_file(
         &species_tree,
         syntenies,
         divergences,
-        settings.merge_tandems,
         tracked,
+        settings,
     )?;
     let out_tree = do_family(id, &register, &logs_root)?;
     info!("Done in {:.2}s.", now.elapsed().as_secs_f32());
