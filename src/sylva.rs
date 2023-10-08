@@ -17,7 +17,7 @@ use syntesuite::genebook::GeneBook;
 
 const RELAXED_SYNTENY_THRESHOLD: OrderedFloat<f32> = OrderedFloat(0.15);
 const MIN_INFORMATIVE_SYNTENY: usize = 3;
-const CORE_THRESHOLD: usize = 20;
+const CORE_THRESHOLD: usize = 14;
 
 type SpeciesID = usize;
 type GeneID = usize;
@@ -812,17 +812,23 @@ fn grow_duplication(
     ds
 }
 
-fn create_duplications(
+fn create_duplications_under(
     register: &Register,
     tree: &PolytomicGeneTree,
     reference: usize,
 ) -> Vec<Duplications> {
-    let mut dups = Vec::new();
     let mut sources = HashMap::<SpeciesID, Vec<GeneID>>::new();
     for i in tree[reference].content_slice() {
         sources.entry(register.species[*i]).or_default().push(*i);
     }
+    create_duplications_from(register, sources)
+}
 
+fn create_duplications_from(
+    register: &Register,
+    mut sources: HashMap<SpeciesID, Vec<GeneID>>,
+) -> Vec<Duplications> {
+    let mut dups = Vec::new();
     let mut seed_speciess = sources
         .keys()
         .copied()
@@ -888,7 +894,7 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
     let roots = t[1].children.clone();
 
     for &i in &roots {
-        let mut dups = create_duplications(register, t, i);
+        let mut dups = create_duplications_under(register, t, i);
         dups.sort_by_cached_key(|f| {
             let all_species = f.iter().flat_map(|d| d.content.iter().map(|&x| register.species[x]));
             let unique_species = HashSet::<usize>::from_iter(all_species).len() as i64;
@@ -899,6 +905,7 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
             .species_tree
             .mrca(clonable_view_cloned(&register.species, t[i].content_slice()))
             .unwrap();
+        // Extract the genes under t[i] not contained in a duplication arm
         let my_owns = t[i]
             .content_slice()
             .iter()
@@ -1011,17 +1018,14 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &Register) -> Result<()> {
         .collect::<Vec<(usize, Vec<usize>)>>();
     let species = todos.iter().map(|ts| r.species[ts.1[0]]).collect::<Vec<_>>();
     for todo in &todos {
-        trace!(
-            "Clearing {:?}",
-            t[todo.0].content_iter().map(|g| r.genes[*g].as_str()).collect_vec()
-        );
         t[todo.0].content_clear();
     }
 
     trace!("Tandems found in {:?}", species.iter().map(|s| r.species_name(*s)).collect_vec());
 
+    let species_in_tree = r.species.iter().cloned().collect::<IntSet<_>>();
     while let Some(todo) = todos.last().and_then(|ts| ts.1.first().map(|x| (ts.0, *x))) {
-        trace!("Opening at {:?}", todo);
+        trace!("Opening at {}", r.genes[todo.1]);
         let anchor = todo.0;
         let genes = vec![todo.1];
 
@@ -1029,12 +1033,14 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &Register) -> Result<()> {
         let mut current_mrca = anchor;
 
         while let Some(new_mrca) = t[current_mrca].parent {
-            let all_descendants = t.full_descendants(new_mrca);
+            let all_descendants =
+                t.full_descendants(new_mrca).iter().cloned().collect::<IntSet<_>>();
+
             let new_genes: Vec<GeneID> = todos
                 .iter()
                 .filter_map(
                     |(anchor, gs)| {
-                        if all_descendants.contains(anchor) {
+                        if all_descendants.contains(&anchor) {
                             Some(gs[0])
                         } else {
                             None
@@ -1042,26 +1048,133 @@ fn expand_meta(t: &mut PolytomicGeneTree, r: &Register) -> Result<()> {
                     },
                 )
                 .collect_vec();
+            let expected_species =
+                r.span(t[new_mrca].tag).intersection(&species_in_tree).collect_vec();
             let cs = new_genes.iter().map(|g| r.species[*g]).collect::<IntSet<_>>().len() as f32
-                / r.span(t[new_mrca].tag).len() as f32;
+                / expected_species.len() as f32;
+            // trace!(
+            //     "{}: cs = {} ", //" -- {:?} vs {:?}",
+            //     r.species_name(t[new_mrca].tag),
+            //     cs,
+            //     // new_genes.iter().map(|g| r.species_name(r.species[*g])).collect_vec(),
+            //     // expected_species.iter().map(|g| r.species_name(**g)).collect_vec()
+            // );
             if cs >= MIN_CS && new_genes.len() > current_best.1.len() {
                 current_best = (new_mrca, new_genes)
             }
-            trace!("{}: cs = {}", r.species_name(t[new_mrca].tag), cs);
             current_mrca = new_mrca;
         }
         trace!("Closing.");
         trace!(
-            "Extracting {:?} from {:?}@{}",
+            "Extracting {} genes {:?} from {:?}@{}",
+            current_best.1.len(),
             current_best.1.iter().map(|g| r.genes[*g].as_str()).collect::<Vec<_>>(),
             current_best.1.iter().map(|g| r.species_name(r.species[*g])).collect::<HashSet<_>>(),
             r.species_name(t[current_best.0].tag),
         );
-        let alpha = t.add_node(&[], t[current_best.0].tag, Some(t[current_best.0].parent.unwrap()));
-        t.move_node(current_best.0, alpha);
-        let _ = reconcile(t, &current_best.1, r, Some(alpha), None, false);
-        todos.iter_mut().for_each(|ts| ts.1.retain(|g| !current_best.1.contains(g)));
 
+        // dbg!(current_best
+        //     .1
+        //     .iter()
+        //     .map(|g| r.species_name(r.species[*g]))
+        //     .sorted()
+        //     .collect::<Vec<_>>());
+
+        let mut sources = HashMap::<SpeciesID, Vec<GeneID>>::new();
+        for i in current_best.1.iter() {
+            sources.entry(r.species[*i]).or_default().push(*i);
+        }
+
+        let mut duplications = create_duplications_from(r, sources);
+        duplications.sort_by_cached_key(|f| {
+            let all_species = f.iter().flat_map(|d| d.content.iter().map(|&x| r.species[x]));
+            let unique_species = HashSet::<usize>::from_iter(all_species).len() as i64;
+            -unique_species
+        });
+        // let first_arm = duplications.pop().unwrap();
+        // reconcile(t, &first_arm.content, r, Some(current_best.0), None, true);
+
+        let anchor = current_best.0;
+        let my_owns = current_best
+            .1
+            .iter()
+            .copied()
+            .filter(|g| {
+                duplications.iter().flat_map(|ds| ds.iter()).all(|d| !d.content.contains(g))
+            })
+            .collect::<Vec<_>>();
+        t.clear_leaves(anchor);
+        dbg!(&my_owns);
+        reconcile(t, &my_owns, r, Some(anchor), None, true);
+        for f in duplications.iter_mut() {
+            f.sort_by_cached_key(|d| d.content.iter().unique_by(|g| r.species[**g]).count());
+
+            while let Some(d) = f.pop() {
+                let root_candidates = t
+                    .descendants(anchor)
+                    .iter()
+                    .copied()
+                    .filter(|n| t[*n].tag == d.root)
+                    .sorted_by_cached_key(|n| {
+                        let leaves = t.full_descendant_leaves(*n);
+                        let synteny = if leaves.is_empty() {
+                            OrderedFloat(0.0)
+                        } else {
+                            OrderedFloat(
+                                r.synteny
+                                    .masked_from_iter(d.content.iter().cloned(), leaves.into_iter())
+                                    .max(),
+                            )
+                        };
+                        let t_depth = t.topo_depth(*n) as i64;
+                        (-synteny, -t_depth)
+                    })
+                    .collect::<Vec<_>>();
+
+                let current_root =
+                    if let Some(root) = root_candidates.first() { *root } else { anchor };
+
+                // If the putative root is a leaf node, make it a non-leaf node
+                if !t[current_root].content_is_empty() {
+                    let leaves = t[current_root].content_slice().to_vec();
+                    t.clear_leaves(current_root);
+                    let _ = t.add_node(
+                        &leaves,
+                        r.species_tree
+                            .mrca(leaves.iter().map(|g| &r.species[*g]).cloned())
+                            .unwrap(),
+                        Some(current_root),
+                    );
+                }
+
+                // If the putative root has a single child, we can reconcile directly in it
+                // Otherwise, we need to create an intermediate node
+                if t[current_root].children.len() > 1 {
+                    let node_alpha = t.add_node(&[], t[current_root].tag, None);
+                    for c in t[current_root].children.clone().into_iter() {
+                        t.move_node(c, node_alpha);
+                    }
+                    t.move_node(node_alpha, current_root);
+                    reconcile(
+                        t,
+                        &d.content,
+                        r,
+                        Some(current_root),
+                        Some(t[current_root].tag),
+                        false,
+                    );
+                } else {
+                    reconcile(t, &d.content, r, Some(current_root), None, false);
+                }
+            }
+        }
+
+        // let alpha =
+        //     t.add_node(&[], t[current_best.0].tag, Some(t[current_best.0].parent.unwrap()));
+        // let _ = reconcile(t, &current_best.1, r, Some(alpha), None, false);
+        // t.move_node(current_best.0, alpha);
+
+        todos.iter_mut().for_each(|ts| ts.1.retain(|g| !current_best.1.contains(g)));
         todos.retain(|t| !t.1.is_empty());
     }
 
