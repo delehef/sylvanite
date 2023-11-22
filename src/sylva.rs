@@ -31,6 +31,11 @@ fn round(x: f32, d: i8) -> f32 {
     (x * ten).round() / ten
 }
 
+struct MetaData {
+    species: String,
+    chr: String,
+}
+
 pub struct Settings {
     pub logs: String,
     pub window: usize,
@@ -39,16 +44,27 @@ pub struct Settings {
 }
 
 struct Register<'a> {
+    metadata: Vec<MetaData>,
     settings: Settings,
-    landscape_size: Vec<usize>,
+    /// A list of the core genes
     core: Vec<GeneID>,
+    /// A set  "  "   "    "
     core_set: IntSet<GeneID>,
+    /// An ID-to-name mapping of this family
     genes: Vec<String>,
+    /// An ID-to-SpeciesID of this family
     species: Vec<SpeciesID>,
+    /// An ID-to-lanscape size of this family
+    landscape_size: Vec<usize>,
+    /// A set of all the species ID found in this family
     all_species: HashSet<SpeciesID>,
+    /// The synteny distance matrix of this family
     synteny: VecMatrix<f32>,
+    /// The divergence matrix of this family
     divergence: VecMatrix<f32>,
+    /// The global species tree
     species_tree: &'a NewickTree,
+
     extended: Vec<GeneID>,
     solos: Vec<GeneID>,
     fan_out: IntMap<GeneID, Vec<GeneID>>,
@@ -57,6 +73,12 @@ struct Register<'a> {
 impl Register<'_> {
     fn size(&self) -> usize {
         self.genes.len()
+    }
+
+    fn are_satellites(&self, g1: GeneID, g2: GeneID) -> bool {
+        let d1 = &self.metadata[g1];
+        let d2 = &self.metadata[g2];
+        d1.species == d2.species && d1.chr == d2.chr
     }
 }
 
@@ -229,10 +251,19 @@ fn make_register<'a>(
     let divergence = parse_dist_matrix(divergence_matrix, genes).map_err(|e| {
         RuntimeError::FailedToReadMatrix { source: e, filename: divergence_matrix.to_owned() }
     })?;
+
     let species2id = species_tree
         .leaves()
         .map(|l| (species_tree.name(l).expect("Found nameless leaf in species tree").to_owned(), l))
         .collect::<HashMap<_, _>>();
+
+    let metadata = genes
+        .iter()
+        .map(|g_id| {
+            book.get(g_id)
+                .map(|g| MetaData { species: g.species.to_owned(), chr: g.chr.to_owned() })
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     let fan_out = genes
         .iter()
@@ -265,14 +296,15 @@ fn make_register<'a>(
         .collect::<IntMap<_, _>>();
     let secondary_tandems = fan_out.values().flat_map(|g| g.iter()).cloned().collect::<IntSet<_>>();
 
-    let landscape_sizes = genes
+    let landscapes = genes
         .iter()
         .map(|p| {
             book.get(p)
-                .map(|x| x.landscape().count())
+                .map(|x| x.landscape().collect::<Vec<_>>())
                 .map_err(|_| RuntimeError::IdNotFound(p.to_string()).into())
         })
         .collect::<Result<Vec<_>>>()?;
+    let landscape_sizes = landscapes.iter().map(Vec::len).collect::<Vec<_>>();
 
     let mut core = genes
         .iter()
@@ -319,6 +351,7 @@ fn make_register<'a>(
             .filter(|i| !secondary_tandems.contains(i)),
     );
     let register = Register {
+        metadata,
         settings,
         landscape_size: landscape_sizes,
         core: core.iter().cloned().collect_vec(),
@@ -497,8 +530,31 @@ fn remove_solos_clusters(t: &mut PolytomicGeneTree) -> Vec<NodeID> {
     r
 }
 
-fn inject_extended(t: &mut PolytomicGeneTree, register: &Register) {
-    let mut extended = register.extended.to_owned();
+fn inject_extended(t: &mut PolytomicGeneTree, register: &Register, root: usize) {
+    let extended_clusters =
+        register.extended.iter().fold(Vec::<Vec<GeneID>>::new(), |mut ax, &g| {
+            // let target = ax
+            //     .iter()
+            //     .enumerate()
+            //     .find(|(_, gs)| gs.iter().any(|&g0| register.are_satellites(g0, g)))
+            //     .map(|x| x.0);
+
+            // if let Some(t) = target {
+            //     ax[t].push(g);
+            // } else {
+            ax.push(vec![g]);
+            // };
+            ax
+        });
+
+    let mut extended = Vec::new();
+    for cluster in extended_clusters.into_iter() {
+        if cluster.len() == 1 {
+            extended.push(cluster[0]);
+        } else {
+            t.add_node(&cluster, 0, Some(root));
+        }
+    }
 
     let mut local_synteny = register.synteny.clone();
     for i in extended.iter() {
@@ -1611,7 +1667,7 @@ fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<Polytomic
             register.extended.len(),
             tree[1].children.len()
         );
-        inject_extended(&mut tree, register);
+        inject_extended(&mut tree, register, root);
         remove_solos_clusters(&mut tree)
     };
 
