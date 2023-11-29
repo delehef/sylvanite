@@ -2,11 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.6.1] - 2023-07-16
+## [1.6.2] - 2023-11-29
+
+### Features
+
+- Add `--dups-from-sequence`
 
 ### Miscellaneous Tasks
 
 - Update dependencies
+- Release sylvanite version 1.6.1
+- Update syntesuite
 
 ## [1.6.0] - 2023-07-03
 
