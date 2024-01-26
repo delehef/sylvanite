@@ -31,11 +31,6 @@ fn round(x: f32, d: i8) -> f32 {
     (x * ten).round() / ten
 }
 
-struct MetaData {
-    species: String,
-    chr: String,
-}
-
 pub struct Settings {
     pub logs: String,
     pub window: usize,
@@ -44,7 +39,6 @@ pub struct Settings {
 }
 
 struct Register<'a> {
-    metadata: Vec<MetaData>,
     settings: Settings,
     /// A list of the core genes
     core: Vec<GeneID>,
@@ -73,12 +67,6 @@ struct Register<'a> {
 impl Register<'_> {
     fn size(&self) -> usize {
         self.genes.len()
-    }
-
-    fn are_satellites(&self, g1: GeneID, g2: GeneID) -> bool {
-        let d1 = &self.metadata[g1];
-        let d2 = &self.metadata[g2];
-        d1.species == d2.species && d1.chr == d2.chr
     }
 }
 
@@ -257,14 +245,6 @@ fn make_register<'a>(
         .map(|l| (species_tree.name(l).expect("Found nameless leaf in species tree").to_owned(), l))
         .collect::<HashMap<_, _>>();
 
-    let metadata = genes
-        .iter()
-        .map(|g_id| {
-            book.get(g_id)
-                .map(|g| MetaData { species: g.species.to_owned(), chr: g.chr.to_owned() })
-        })
-        .collect::<Result<Vec<_>>>()?;
-
     let fan_out = genes
         .iter()
         .map(|g_id| book.get(g_id))
@@ -351,7 +331,6 @@ fn make_register<'a>(
             .filter(|i| !secondary_tandems.contains(i)),
     );
     let register = Register {
-        metadata,
         settings,
         landscape_size: landscape_sizes,
         core: core.iter().cloned().collect_vec(),
@@ -1046,10 +1025,10 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
                         register,
                         Some(current_root),
                         Some(t[current_root].tag),
-                        false,
+                        true,
                     );
                 } else {
-                    reconcile(t, &d.content, register, Some(current_root), None, false);
+                    reconcile(t, &d.content, register, Some(current_root), None, true);
                 }
             }
         }
@@ -1131,7 +1110,39 @@ struct GraftCriteria<F> {
     divergence: OrderedFloat<F>,
 }
 
+/// A set of metadata relative to a putative anchor point for grafting a sub-tree
+struct CandidateParent {
+    // the node id of this candidate in the tree
+    node: usize,
+    // the node in the tree that will be used to compute th grafting criterion
+    context_node: usize,
+    // the species covered by the candidate
+    species: IntSet<SpeciesID>,
+    // the genes descending from the candidate
+    leaves: Vec<usize>,
+}
+
 fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
+    fn show_graft<F: ordered_float::Float + std::fmt::Display>(
+        parent: &CandidateParent,
+        criterion: &GraftCriteria<F>,
+        t: &PolytomicGeneTree,
+        register: &Register,
+    ) {
+        info!(
+            "{:4}/{:4} ({}) {:4} leaves DELC: {:2} SYN: {:2.2} DV: {:2.2} T: {} {}",
+            parent.node,
+            parent.context_node,
+            register.species_name(register.species[t[parent.context_node].tag]),
+            parent.leaves.len(),
+            criterion.elc,
+            criterion.synteny,
+            criterion.divergence,
+            register.species_name(t[parent.node].tag),
+            parent.leaves.first().map(|g| register.genes[*g].as_str()).unwrap_or("EMPTY")
+        );
+    }
+
     let to_keep = t[1].children.iter().map(|&k| t[k].tag).collect::<IntSet<_>>();
     debug!(
         "Partially pruning tree, keeping {:?}",
@@ -1154,13 +1165,53 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
     let new_root = reconcile_upstream(t, aa, register, None);
 
     while let Some(to_graft) = todo.pop() {
-        let candidate_parents = t
+        let candidate_parents_id = t
             .descendants(new_root)
             .iter()
             .cloned()
             .filter(|&b| b != to_graft && t[b].tag == t[to_graft].tag)
             .filter(|&b| !t.descendants(to_graft).contains(&b))
             .collect::<Vec<_>>();
+
+        let candidate_parents: Vec<CandidateParent> = candidate_parents_id
+            .iter()
+            .map(|i| {
+                // the context node is chosen to be the oldest parent of the
+                // grafting node such that it encompasses no other grafting
+                // node.
+                let mut context_node = *i;
+                loop {
+                    if let Some(maybe_context_node) = t[context_node].parent {
+                        if !candidate_parents_id
+                            .iter()
+                            .filter(|c| *c != i)
+                            .any(|c| t.descendants(maybe_context_node).contains(c))
+                        {
+                            context_node = maybe_context_node;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                CandidateParent {
+                    node: *i,
+                    context_node,
+                    species: t
+                        .descendant_leaves(context_node)
+                        .iter()
+                        .map(|g| register.species[*g])
+                        .collect::<IntSet<_>>(),
+                    leaves: t
+                        .descendant_leaves(context_node)
+                        .intersection(&register.core_set)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                }
+            })
+            .collect();
 
         let mut leaves = HashMap::new();
         leaves.insert(
@@ -1176,38 +1227,6 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
             view_cloned(&register.species, t.descendant_leaves(to_graft))
                 .collect::<IntSet<SpeciesID>>(),
         );
-        let mut context_nodes = HashMap::new();
-        for i in &candidate_parents {
-            let mut context_node = *i;
-            'search_context: while t.descendant_leaves(context_node).len() as f32
-                <= leaves[&to_graft].len() as f32 / 2.0 + 1.
-                && t[context_node].parent.is_some()
-            {
-                context_node = t[context_node].parent.unwrap();
-                if candidate_parents
-                    .iter()
-                    .filter(|&c| c != i)
-                    .any(|c| t.descendants(context_node).contains(c))
-                {
-                    break 'search_context;
-                }
-            }
-            context_nodes.insert(*i, context_node);
-            leaves.insert(
-                *i,
-                t.descendant_leaves(context_node)
-                    .intersection(&register.core_set)
-                    .cloned()
-                    .collect::<Vec<_>>(),
-            );
-            speciess.insert(
-                *i,
-                t.descendant_leaves(context_node)
-                    .iter()
-                    .map(|g| register.species[*g])
-                    .collect::<IntSet<_>>(),
-            );
-        }
 
         let log = view(&register.genes, t.descendant_leaves(to_graft))
             .any(|s| register.tracked.contains(s));
@@ -1220,24 +1239,24 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
             .map(|b| {
                 let mrca = register
                     .species_tree
-                    .mrca(speciess[&to_graft].iter().chain(speciess[b].iter()).cloned())
+                    .mrca(speciess[&to_graft].iter().chain(b.species.iter()).cloned())
                     .unwrap();
-                let elc = if speciess[&to_graft].is_disjoint(&speciess[b]) {
+                let elc = if speciess[&to_graft].is_disjoint(&b.species) {
                     register.elc_from(
-                        speciess[b].iter().cloned().chain(speciess[&to_graft].iter().cloned()),
+                        b.species.iter().cloned().chain(speciess[&to_graft].iter().cloned()),
                         mrca,
-                    ) - register.elc_from(speciess[b].iter().cloned(), mrca)
+                    ) - register.elc_from(b.species.iter().cloned(), mrca)
                 } else {
-                    register.elc_from(speciess[b].iter().cloned(), mrca)
+                    register.elc_from(b.species.iter().cloned(), mrca)
                         + register.elc_from(speciess[&to_graft].iter().cloned(), mrca)
                 };
 
                 let synteny = leaves[&to_graft]
                     .iter()
-                    .map(|l| register.synteny.masked(&[*l], &leaves[b]).max())
+                    .map(|l| register.synteny.masked(&[*l], &b.leaves).max())
                     .sum::<f32>()
                     / leaves[&to_graft].len() as f32;
-                let divergence = register.divergence.masked(&leaves[&to_graft], &leaves[b]).min();
+                let divergence = register.divergence.masked(&leaves[&to_graft], &b.leaves).min();
 
                 (
                     b,
@@ -1254,19 +1273,9 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
         if log {
             println!("\n\n=== BEFORE ===");
             for b in &candidate_parents {
-                let bb = &b.1;
-                let b = b.0;
-                info!(
-                    "{:4}/{:4} ({:4} leaves) DELC: {:2} SYN: {:2.2} DV: {:2.2} T: {} {}",
-                    b,
-                    context_nodes[b],
-                    leaves[b].len(),
-                    bb.elc,
-                    bb.synteny,
-                    bb.divergence,
-                    register.species_name(t[*b].tag),
-                    leaves[b].first().map(|g| register.genes[*g].as_str()).unwrap_or("EMPTY")
-                );
+                let parent = b.0;
+                let criterion = &b.1;
+                show_graft(parent, criterion, t, register);
             }
         }
 
@@ -1299,58 +1308,52 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
         if log {
             println!("=== AFTER ===");
             for b in &candidate_parents {
-                let bb = &b.1;
-                let b = b.0;
-                info!(
-                    "{:4}/{:4} ({:4} leaves) DELC: {:2} SYN: {:2.2} DV: {:2.2} T: {} {}",
-                    b,
-                    context_nodes[b],
-                    leaves[b].len(),
-                    bb.elc,
-                    bb.synteny,
-                    bb.divergence,
-                    register.species_name(t[*b].tag),
-                    leaves[b].first().map(|g| register.genes[*g].as_str()).unwrap_or("EMPTY")
-                );
+                let parent = b.0;
+                let criterion = &b.1;
+                show_graft(parent, criterion, t, register);
             }
         }
-        if let Some(cluster) = candidate_parents.first() {
+        if let Some(optimum) = candidate_parents.first() {
+            let parent = optimum.0;
             let child = to_graft;
             t[child].metadata.insert("METHOD".into(), method.to_owned());
-            let parent = *cluster.0;
 
             if log {
-                println!("Parent: {}/{}", t[parent].content_len(), t[parent].children.len());
+                println!(
+                    "Parent: {}/{}",
+                    t[parent.node].content_len(),
+                    t[parent.node].children.len()
+                );
             }
 
             // If the child is plugged on a completely empty subtree,
             // it should replace it to lock its docking points
-            if t.descendant_leaves(parent).is_empty() {
-                t.move_node(child, t[parent].parent.unwrap());
-                t.delete_node(parent);
+            if t.descendant_leaves(parent.node).is_empty() {
+                t.move_node(child, t[parent.node].parent.unwrap());
+                t.delete_node(parent.node);
             } else {
-                if !t[parent].content_is_empty() {
-                    let leaves = t[parent].content_slice().to_vec();
-                    t.clear_leaves(parent);
+                if !t[parent.node].content_is_empty() {
+                    let leaves = t[parent.node].content_slice().to_vec();
+                    t.clear_leaves(parent.node);
                     let _content = t.add_node(
                         &leaves,
                         register
                             .species_tree
                             .mrca(clonable_view_cloned(&register.species, &leaves))
                             .unwrap(),
-                        Some(parent),
+                        Some(parent.node),
                     );
                 }
 
-                if t[parent].children.len() > 1 {
-                    let node_alpha = t.add_node(&[], t[parent].tag, None);
-                    for c in t[parent].children.clone().into_iter() {
+                if t[parent.node].children.len() > 1 {
+                    let node_alpha = t.add_node(&[], t[parent.node].tag, None);
+                    for c in t[parent.node].children.clone().into_iter() {
                         t.move_node(c, node_alpha);
                     }
-                    t.move_node(node_alpha, parent);
+                    t.move_node(node_alpha, parent.node);
                 }
 
-                t.move_node(child, parent);
+                t.move_node(child, parent.node);
             }
         }
     }

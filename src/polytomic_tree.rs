@@ -334,7 +334,7 @@ impl<T: Clone + Eq + IdentityHashable + std::hash::Hash + std::fmt::Debug, S> PT
             .collect::<Vec<String>>()
             .join(":");
         r.push_str(&format!(
-            "[&&NHX:S={}{}]",
+            "[&&NHX:ID={i}:S={}{}]",
             f_tag(&self.nodes[&i].tag),
             if metadata.is_empty() { "".to_owned() } else { format!(":{}", metadata) }
         ));
