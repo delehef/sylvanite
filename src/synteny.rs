@@ -51,8 +51,8 @@ pub fn process_file(
             let gg2 = book.get(g2).map_err(|_| RuntimeError::IdNotFound(g2.into()))?;
 
             let score = align::score_landscape(
-                &gg1.landscape().collect::<Vec<_>>(),
-                &gg2.landscape().collect::<Vec<_>>(),
+                gg1.landscape().collect::<Vec<_>>(),
+                gg2.landscape().collect::<Vec<_>>(),
                 &|x, y| x.max(y) as f32,
             );
             m.lock()

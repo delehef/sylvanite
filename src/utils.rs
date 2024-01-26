@@ -42,7 +42,7 @@ pub fn read_genefile(filename: &str) -> Result<Vec<Vec<String>>> {
         .read_to_string(&mut filecontent)?;
     let filecontent = filecontent.trim();
     if filecontent.starts_with('(') && filecontent.ends_with(';') {
-        let trees = newick::from_string(&filecontent)?;
+        let trees = newick::from_string(filecontent)?;
         trees
             .into_iter()
             .map(|tree| {

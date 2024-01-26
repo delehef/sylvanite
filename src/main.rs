@@ -219,9 +219,8 @@ fn main() -> Result<()> {
         } => {
             let logs = "logs";
             let mut timings = if let Some(timings) = timings {
-                let mut timings = File::create(&timings).map_err(|source| {
-                    FileError::WhileCreating { source, filename: timings.into() }
-                })?;
+                let mut timings = File::create(&timings)
+                    .map_err(|source| FileError::WhileCreating { source, filename: timings })?;
                 timings.write_all("file,size,time\n".as_bytes())?;
                 Some(timings)
             } else {

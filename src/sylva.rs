@@ -77,7 +77,7 @@ struct Duplication {
     species: HashSet<SpeciesID>,
 }
 impl Duplication {
-    pub fn pretty<'a>(&self, register: &'a Register) {
+    pub fn pretty(&self, register: &Register) {
         println!(
             "  {:?}",
             view(&register.genes, &self.content).cloned().collect::<Vec<String>>().join(" ")
@@ -107,7 +107,7 @@ impl<'st> Register<'st> {
         self.species_tree.cached_leaves_of(mrca)
     }
 
-    pub fn mrca_span<'a>(&self, species: impl IntoIterator<Item = usize>) -> &IntSet<SpeciesID> {
+    pub fn mrca_span(&self, species: impl IntoIterator<Item = usize>) -> &IntSet<SpeciesID> {
         self.span(self.species_tree.mrca(species).unwrap())
     }
 
@@ -131,7 +131,7 @@ impl<'st> Register<'st> {
         }
     }
 
-    pub fn elc<'a, Iter>(&self, species: Iter) -> i64
+    pub fn elc<Iter>(&self, species: Iter) -> i64
     where
         Iter: IntoIterator<Item = usize>,
         Iter::IntoIter: Clone,
@@ -142,7 +142,7 @@ impl<'st> Register<'st> {
         self.elc_from(species.clone(), mrca)
     }
 
-    pub fn elc_from<'a>(&self, species: impl IntoIterator<Item = usize>, mrca: SpeciesID) -> i64 {
+    pub fn elc_from(&self, species: impl IntoIterator<Item = usize>, mrca: SpeciesID) -> i64 {
         let species: IntSet<SpeciesID> = species.into_iter().collect();
         if species.is_empty() {
             return 0;
@@ -350,7 +350,7 @@ fn make_register<'a>(
 }
 
 fn mean(x: &[f32]) -> f32 {
-    x.iter().sum::<f32>() as f32 / x.len() as f32
+    x.iter().sum::<f32>() / x.len() as f32
 }
 
 fn find_threshold(register: &Register) -> f32 {
@@ -486,7 +486,7 @@ fn clusterize<T: PartialOrd>(m: &dyn Matrix<T>, threshold: T) -> Vec<Vec<usize>>
 
     let mut clusters = HashMap::<usize, Vec<usize>>::new();
     for (i, r_i) in r.iter().enumerate() {
-        clusters.entry(*r_i).or_insert(vec![]).push(i);
+        clusters.entry(*r_i).or_default().push(i);
     }
 
     clusters.into_values().collect::<Vec<Vec<usize>>>()
@@ -656,7 +656,7 @@ enum Metric {
     Sequence(OrderedFloat<f32>),
 }
 impl Metric {
-    fn to_furthest(&self) -> OrderedFloat<f32> {
+    fn furthest(&self) -> OrderedFloat<f32> {
         match self {
             Metric::Synteny(synteny) => -synteny,
             Metric::Sequence(sequence) => *sequence,
@@ -674,7 +674,7 @@ fn grow_duplication(
         .map(|&seed| Duplication {
             root: register.species[seed],
             content: vec![seed],
-            species: HashSet::from_iter([seed_species].into_iter()),
+            species: HashSet::from_iter([seed_species]),
         })
         .collect::<Vec<_>>();
     sources.get_mut(&seed_species).unwrap().clear();
@@ -730,7 +730,7 @@ fn grow_duplication(
             }
         }
         links.sort_by_key(|l| {
-            (-i64::try_from(ds[l.arm].content.len()).unwrap(), l.metric.to_furthest())
+            (-i64::try_from(ds[l.arm].content.len()).unwrap(), l.metric.furthest())
         });
 
         for l in links {
@@ -1180,17 +1180,13 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                 // grafting node such that it encompasses no other grafting
                 // node.
                 let mut context_node = *i;
-                loop {
-                    if let Some(maybe_context_node) = t[context_node].parent {
-                        if !candidate_parents_id
-                            .iter()
-                            .filter(|c| *c != i)
-                            .any(|c| t.descendants(maybe_context_node).contains(c))
-                        {
-                            context_node = maybe_context_node;
-                        } else {
-                            break;
-                        }
+                while let Some(maybe_context_node) = t[context_node].parent {
+                    if !candidate_parents_id
+                        .iter()
+                        .filter(|c| *c != i)
+                        .any(|c| t.descendants(maybe_context_node).contains(c))
+                    {
+                        context_node = maybe_context_node;
                     } else {
                         break;
                     }
@@ -1763,7 +1759,7 @@ pub fn do_file(
     timings: &mut Option<File>,
     tracked: &[String],
 ) -> Result<String> {
-    let mut species_tree = newick::one_from_filename(&speciestree_file)
+    let mut species_tree = newick::one_from_filename(speciestree_file)
         .with_context(|| anyhow!("while opening {}", speciestree_file.yellow().bold()))?;
     species_tree.cache_leaves();
 

@@ -310,8 +310,7 @@ impl<T: Clone + Eq + IdentityHashable + std::hash::Hash + std::fmt::Debug, S> PT
     ) -> String {
         let mut r = String::new();
 
-        let leaves =
-            self.nodes[&i].content.iter().map(|c| f_leaf(c)).collect::<Vec<String>>().join(",");
+        let leaves = self.nodes[&i].content.iter().map(f_leaf).collect::<Vec<String>>().join(",");
         let children = self.nodes[&i]
             .children
             .iter()

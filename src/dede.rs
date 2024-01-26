@@ -45,11 +45,11 @@ impl<T> VecMatrix<T> {
         MaskedMatrix { m: self, is: Either::Left(is), js: Either::Left(js) }
     }
 
-    pub fn masked_from_iter<'a>(
-        &'a self,
+    pub fn masked_from_iter(
+        &self,
         is: impl Iterator<Item = usize>,
         js: impl Iterator<Item = usize>,
-    ) -> MaskedMatrix<'a, T> {
+    ) -> MaskedMatrix<'_, T> {
         MaskedMatrix { m: self, is: Either::Right(is.collect()), js: Either::Right(js.collect()) }
     }
 
