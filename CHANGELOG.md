@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.0] - 2024-01-26
+
+### Bug Fixes
+
+- Drop heuristic for subtree grafting
+- Drop heuristic for subtree grafting
+
+### Miscellaneous Tasks
+
+- Clippy
+
 ## [1.6.2] - 2023-11-29
 
 ### Features
@@ -13,6 +24,7 @@ All notable changes to this project will be documented in this file.
 - Update dependencies
 - Release sylvanite version 1.6.1
 - Update syntesuite
+- Release sylvanite version 1.6.2
 
 ## [1.6.0] - 2023-07-03
 
