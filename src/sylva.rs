@@ -36,6 +36,7 @@ pub struct Settings {
     pub window: usize,
     pub merge_tandems: bool,
     pub dups_from_sequence: bool,
+    pub synteny_threshold: Option<f32>,
 }
 
 struct Register<'a> {
@@ -1635,8 +1636,9 @@ fn reconcile_upstream(
 }
 
 fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<PolytomicGeneTree> {
-    info!("Optimizing threshold");
-    let tt = find_threshold(register) - 0.1;
+    info!("Setting synteny threshold...");
+    let tt = register.settings.synteny_threshold.unwrap_or_else(|| find_threshold(register) - 0.1);
+    info!("Using {}", tt);
 
     let mut tree = PolytomicGeneTree::new();
     let root = tree.add_node(&[], 0, None);

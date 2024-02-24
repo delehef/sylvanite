@@ -134,6 +134,10 @@ enum Commands {
         /// an optional set of comma-separated genes to track (for debug purposes)
         #[clap(long, value_delimiter = ',')]
         tracked: Vec<String>,
+
+        /// if set, override the automated synteny threshold choice
+        #[clap(long)]
+        synteny_threshold: Option<f32>,
     },
 }
 
@@ -216,6 +220,7 @@ fn main() -> Result<()> {
             merge_tandems,
             tracked,
             dups_from_sequence,
+            synteny_threshold,
         } => {
             let logs = "logs";
             let mut timings = if let Some(timings) = timings {
@@ -276,6 +281,7 @@ fn main() -> Result<()> {
                         window: args.window,
                         merge_tandems,
                         dups_from_sequence,
+                        synteny_threshold,
                     };
                     let tree = sylva::do_file(
                         &f,
