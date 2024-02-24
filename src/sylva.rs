@@ -353,7 +353,7 @@ fn mean(x: &[f32]) -> f32 {
     x.iter().sum::<f32>() / x.len() as f32
 }
 
-fn find_threshold(register: &Register) -> f32 {
+fn find_threshold(register: &Register, id: &str, logs_root: &str) -> f32 {
     let all_ts = register
         .synteny
         .masked(&register.core, &register.core)
@@ -397,7 +397,10 @@ fn find_threshold(register: &Register) -> f32 {
         .collect::<Vec<_>>();
 
     info!("Computing optimization targets");
-    for (_t, clusters) in tts.iter().zip(clusterss.into_iter()) {
+    let mut log_file = File::create(&format!("{}/{}_thresholds.csv", &logs_root, id)).unwrap();
+    log_file.write_all(b"t,redundancies,#clusters,compacities\n").unwrap();
+
+    for (_t, clusters) in tts.iter().zip(clusterss.iter()) {
         let redundancies = clusters.iter().map(|c| c.len()).sum::<usize>() as f32
             / clusters
                 .iter()
@@ -419,6 +422,24 @@ fn find_threshold(register: &Register) -> f32 {
         reds.push(round(redundancies, 2));
         counts.push(clusters.len() as i64);
         avg_comp.push(round(compacities, 2));
+    }
+
+    let reds_max = reds.iter().fold(0f32, |max, &val| if val > max { val } else { max });
+    let counts_max = clusterss.iter().last().unwrap().len() as f32;
+    let avg_comp_max = avg_comp.iter().fold(0f32, |max, &val| if val > max { val } else { max });
+    for (i, t) in tts.iter().enumerate() {
+        log_file
+            .write_all(
+                format!(
+                    "{},{},{},{}\n",
+                    t,
+                    reds[i] / reds_max,
+                    counts[i] as f32 / counts_max,
+                    avg_comp[i] / avg_comp_max
+                )
+                .as_bytes(),
+            )
+            .unwrap();
     }
 
     info!("Finding optimal threshold");
@@ -1636,7 +1657,10 @@ fn reconcile_upstream(
 
 fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<PolytomicGeneTree> {
     info!("Optimizing threshold");
-    let tt = find_threshold(register) - 0.1;
+    let tt = find_threshold(register, id, logs_root);
+
+    let tt = 0.22;
+    warn!("Selected THR: {tt}");
 
     let mut tree = PolytomicGeneTree::new();
     let root = tree.add_node(&[], 0, None);
