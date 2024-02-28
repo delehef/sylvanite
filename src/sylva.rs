@@ -360,11 +360,7 @@ fn find_threshold(register: &Register, id: &str, logs_root: &str) -> f32 {
         .iter()
         .cloned()
         .collect::<Vec<f32>>();
-    let mut tts = all_ts
-        .iter()
-        .cloned()
-        .filter(|&x| RELAXED_SYNTENY_THRESHOLD < OrderedFloat(x) && x < 0.7)
-        .collect::<Vec<f32>>();
+    let mut tts = all_ts.iter().cloned().filter(|&x| 0.2 < x && x < 0.7).collect::<Vec<f32>>();
     tts.sort_by(|a, b| a.partial_cmp(b).unwrap());
     tts.dedup();
 
@@ -380,6 +376,8 @@ fn find_threshold(register: &Register, id: &str, logs_root: &str) -> f32 {
     let mut avg_comp = Vec::new();
     let mut counts = Vec::<i64>::new();
     let mut reds = Vec::new();
+    let mut endo_dup_count = Vec::new();
+    let mut elcs = Vec::new();
 
     info!("Pre-computing clusters...");
     let clusterss = tts
@@ -398,7 +396,7 @@ fn find_threshold(register: &Register, id: &str, logs_root: &str) -> f32 {
 
     info!("Computing optimization targets");
     let mut log_file = File::create(&format!("{}/{}_thresholds.csv", &logs_root, id)).unwrap();
-    log_file.write_all(b"t,redundancies,#clusters,compacities\n").unwrap();
+    log_file.write_all(b"t,redundancies,#clusters,compacities,dups,elcs,count-x-dup\n").unwrap();
 
     for (_t, clusters) in tts.iter().zip(clusterss.iter()) {
         let redundancies = clusters.iter().map(|c| c.len()).sum::<usize>() as f32
@@ -422,20 +420,48 @@ fn find_threshold(register: &Register, id: &str, logs_root: &str) -> f32 {
         reds.push(round(redundancies, 2));
         counts.push(clusters.len() as i64);
         avg_comp.push(round(compacities, 2));
+        endo_dup_count.push(
+            clusters
+                .iter()
+                .map(|c| create_duplications(register, c).iter().flat_map(|arm| arm.iter()).count())
+                .sum::<usize>(),
+        );
+        elcs.push(
+            clusters
+                .iter()
+                .map(|c| register.elc(clonable_view_cloned(&register.species, c)))
+                .sum::<i64>() as usize,
+        );
     }
 
     let reds_max = reds.iter().fold(0f32, |max, &val| if val > max { val } else { max });
+    let n_reds = reds.iter().map(|x| x / reds_max).collect::<Vec<_>>();
+
     let counts_max = clusterss.iter().last().unwrap().len() as f32;
+    let n_counts = clusterss.iter().map(|x| x.len() as f32 / counts_max).collect::<Vec<_>>();
+
     let avg_comp_max = avg_comp.iter().fold(0f32, |max, &val| if val > max { val } else { max });
+    let n_avg_comp = avg_comp.iter().map(|x| x / avg_comp_max).collect::<Vec<_>>();
+
+    let endo_dup_count_max = *endo_dup_count.iter().max().unwrap() as f32;
+    let n_endo_dup_count =
+        endo_dup_count.iter().map(|x| *x as f32 / endo_dup_count_max).collect::<Vec<_>>();
+
+    let elcs_max = *elcs.iter().max().unwrap() as f32;
+    let n_elcs = elcs.iter().map(|x| *x as f32 / elcs_max).collect::<Vec<_>>();
+
     for (i, t) in tts.iter().enumerate() {
         log_file
             .write_all(
                 format!(
-                    "{},{},{},{}\n",
+                    "{},{},{},{},{},{},{}\n",
                     t,
-                    reds[i] / reds_max,
-                    counts[i] as f32 / counts_max,
-                    avg_comp[i] / avg_comp_max
+                    n_reds[i],
+                    n_counts[i],
+                    n_avg_comp[i],
+                    n_endo_dup_count[i],
+                    n_elcs[i],
+                    n_elcs[i] * n_counts[i]
                 )
                 .as_bytes(),
             )
@@ -453,13 +479,13 @@ fn find_threshold(register: &Register, id: &str, logs_root: &str) -> f32 {
         return t;
     }
 
-    for &i in cmpct_maxima.iter() {
-        debug!(
-            "THR: {:.3} CNT: {:3} CMPCT: {:.2} RED: {:.2}",
-            tts[i], counts[i], avg_comp[i], reds[i]
-        );
-    }
-    debug!("\n");
+    // for &i in cmpct_maxima.iter() {
+    //     debug!(
+    //         "THR: {:.3} CNT: {:3} CMPCT: {:.2} RED: {:.2}",
+    //         tts[i], counts[i], avg_comp[i], reds[i]
+    //     );
+    // }
+    // debug!("\n");
 
     let best_red = view(&reds, &cmpct_maxima).fold(f32::INFINITY, |a, &b| a.min(b));
     cmpct_maxima.retain(|i| reds[*i] <= 1.1 * best_red);
@@ -468,10 +494,17 @@ fn find_threshold(register: &Register, id: &str, logs_root: &str) -> f32 {
     cmpct_maxima.retain(|i| avg_comp[*i] >= 0.95 * best_comp);
 
     let i = cmpct_maxima[0];
-    debug!("SELECTED:");
-    debug!("THR: {:.3} CNT: {:3} CMPCT: {:.2} RED: {:.2}", tts[i], counts[i], avg_comp[i], reds[i]);
+    // debug!("SELECTED:");
+    // debug!("THR: {:.3} CNT: {:3} CMPCT: {:.2} RED: {:.2}", tts[i], counts[i], avg_comp[i], reds[i]);
 
-    tts[i]
+    let mut min = 1000000.0;
+    for &t in tts.iter() {
+        if t < min {
+            min = t;
+        }
+    }
+
+    min - 0.05
 }
 
 fn clusterize<T: PartialOrd>(m: &dyn Matrix<T>, threshold: T) -> Vec<Vec<usize>> {
@@ -868,14 +901,10 @@ fn grow_duplication(
     ds
 }
 
-fn create_duplications(
-    register: &Register,
-    tree: &PolytomicGeneTree,
-    reference: usize,
-) -> Vec<Duplications> {
+fn create_duplications(register: &Register, genes: &[GeneID]) -> Vec<Duplications> {
     let mut dups = Vec::new();
     let mut sources = HashMap::<SpeciesID, Vec<GeneID>>::new();
-    for i in tree[reference].content_slice() {
+    for i in genes {
         sources.entry(register.species[*i]).or_default().push(*i);
     }
 
@@ -944,7 +973,7 @@ fn resolve_duplications(t: &mut PolytomicGeneTree, register: &Register) {
     let roots = t[1].children.clone();
 
     for &i in &roots {
-        let mut dups = create_duplications(register, t, i);
+        let mut dups = create_duplications(register, t[i].content_slice());
         dups.sort_by_cached_key(|f| {
             let all_species = f.iter().flat_map(|d| d.content.iter().map(|&x| register.species[x]));
             let unique_species = HashSet::<usize>::from_iter(all_species).len() as i64;
@@ -1656,11 +1685,8 @@ fn reconcile_upstream(
 }
 
 fn do_family(id: &str, register: &Register, logs_root: &str) -> Result<PolytomicGeneTree> {
-    info!("Optimizing threshold");
     let tt = find_threshold(register, id, logs_root);
-
-    let tt = 0.22;
-    warn!("Selected THR: {tt}");
+    info!("Selected THR: {tt}");
 
     let mut tree = PolytomicGeneTree::new();
     let root = tree.add_node(&[], 0, None);
