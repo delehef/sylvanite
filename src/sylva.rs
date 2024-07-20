@@ -1211,13 +1211,9 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
             .collect();
 
         let mut leaves = HashMap::new();
-        leaves.insert(
-            to_graft,
-            t.descendant_leaves(to_graft)
-                .intersection(&register.core_set)
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
+        // NOTE: do not intersect with the core set here, as grafted tree may
+        // very well not contain any member of it.
+        leaves.insert(to_graft, t.descendant_leaves(to_graft).into_iter().cloned().collect_vec());
         let mut speciess = HashMap::new();
         speciess.insert(
             to_graft,
