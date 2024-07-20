@@ -1166,7 +1166,10 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
     let new_root = reconcile_upstream(t, aa, register, None);
 
     while let Some(to_graft) = todo.pop() {
-        let candidate_parents_id = t
+        let log = view(&register.genes, t.descendant_leaves(to_graft))
+            .any(|s| register.tracked.contains(s));
+
+        let candidate_parents_ids = t
             .descendants(new_root)
             .iter()
             .cloned()
@@ -1174,7 +1177,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
             .filter(|&b| !t.descendants(to_graft).contains(&b))
             .collect::<Vec<_>>();
 
-        let candidate_parents: Vec<CandidateParent> = candidate_parents_id
+        let candidate_parents: Vec<CandidateParent> = candidate_parents_ids
             .iter()
             .map(|i| {
                 // the context node is chosen to be the oldest parent of the
@@ -1182,7 +1185,7 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                 // node.
                 let mut context_node = *i;
                 while let Some(maybe_context_node) = t[context_node].parent {
-                    if !candidate_parents_id
+                    if !candidate_parents_ids
                         .iter()
                         .filter(|c| *c != i)
                         .any(|c| t.descendants(maybe_context_node).contains(c))
@@ -1221,8 +1224,6 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                 .collect::<IntSet<SpeciesID>>(),
         );
 
-        let log = view(&register.genes, t.descendant_leaves(to_graft))
-            .any(|s| register.tracked.contains(s));
         if log {
             println!("Injecting {}", register.species_name(t[to_graft].tag));
         }
@@ -1234,12 +1235,22 @@ fn make_final_tree(t: &mut PolytomicGeneTree, register: &Register) -> usize {
                     .species_tree
                     .mrca(speciess[&to_graft].iter().chain(b.species.iter()).cloned())
                     .unwrap();
-                let elc = if speciess[&to_graft].is_disjoint(&b.species) {
+                let elc = if b.species.is_empty() {
+                    // First case: trying to graft the subtree in a empty tree;
+                    // the DELC is the depth of the grafted species
+                    register
+                        .species_tree
+                        .node_topological_depth(t[to_graft].tag)
+                        .expect("unable to compute species topological depth in specie tree")
+                } else if speciess[&to_graft].is_disjoint(&b.species) {
+                    // Second case: disjoint species set under the garftig point
+                    // and the graftee.
                     register.elc_from(
                         b.species.iter().cloned().chain(speciess[&to_graft].iter().cloned()),
                         mrca,
                     ) - register.elc_from(b.species.iter().cloned(), mrca)
                 } else {
+                    // “Normal” case
                     register.elc_from(b.species.iter().cloned(), mrca)
                         + register.elc_from(speciess[&to_graft].iter().cloned(), mrca)
                 };
