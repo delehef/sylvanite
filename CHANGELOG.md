@@ -2,16 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.0] - 2024-07-22
+
+### Bug Fixes
+
+- Effective leave gathering for grafted subtrees
+- ELC computation when grafting into an empty branch
+
+### Documentation
+
+- Add README
+
+### Features
+
+- Add the `--synteny-threshold` option
+
 ## [1.7.0] - 2024-01-26
 
 ### Bug Fixes
 
 - Drop heuristic for subtree grafting
-- Drop heuristic for subtree grafting
 
 ### Miscellaneous Tasks
 
 - Clippy
+- Release sylvanite version 1.7.0
 
 ## [1.6.2] - 2023-11-29
 
@@ -21,10 +36,15 @@ All notable changes to this project will be documented in this file.
 
 ### Miscellaneous Tasks
 
-- Update dependencies
-- Release sylvanite version 1.6.1
 - Update syntesuite
 - Release sylvanite version 1.6.2
+
+## [1.6.1] - 2023-07-16
+
+### Miscellaneous Tasks
+
+- Update dependencies
+- Release sylvanite version 1.6.1
 
 ## [1.6.0] - 2023-07-03
 
