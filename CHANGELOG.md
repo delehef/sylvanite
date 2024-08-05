@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.1] - 2024-08-05
+
+### Miscellaneous Tasks
+
+- Update dependencies
+
 ## [1.8.0] - 2024-07-22
 
 ### Bug Fixes
@@ -16,6 +22,10 @@ All notable changes to this project will be documented in this file.
 ### Features
 
 - Add the `--synteny-threshold` option
+
+### Miscellaneous Tasks
+
+- Release sylvanite version 1.8.0
 
 ## [1.7.0] - 2024-01-26
 
