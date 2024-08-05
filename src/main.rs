@@ -86,7 +86,7 @@ enum Commands {
         id_pattern: String,
 
         /// regex to extract species name from GFF file name; must contain a named capture group `species`
-        #[clap(long, default_value_t = String::from("(?P<species>.*).gff3"))]
+        #[clap(long, default_value_t = String::from("(?P<species>.*)\\.(gff3|bed|chrom)"))]
         species_pattern: String,
     },
     /// Create gene family trees from gene families, syntenic & sequence distance matrices, and syntenic database
